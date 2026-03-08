@@ -3,35 +3,51 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 from typing import Any
 
-from telegram import ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
-from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
+from .camera_capture import CameraCaptureError, CapturedPhoto, capture_webcam_photo
 from .config import AppConfig, is_valid_host, load_config, write_env_file
 from .constants import (
     AUTH_MODE_ROWS,
+    BUTTON_ALIASES,
+    CAMERA_MENU_ROWS,
+    COMBO_SUGGESTION_ROWS,
+    COMMON_COMBO_EXAMPLES,
+    COMMON_MACRO_EXAMPLES,
+    INLINE_COMBO_SHORTCUTS,
     KEY_MENU_ROWS,
+    KEYBOARD_KEYS,
     LOG_LEVEL_ROWS,
     MACRO_MENU_FOOTER,
     MAIN_MENU_ROWS,
+    NAVIGATION_COMBO_EXAMPLES,
+    NAVIGATION_MENU_ROWS,
     SETUP_CONFIRM_ROWS,
     SETUP_RESET_CONFIRM_ROWS,
+    TEXT_SHORTCUT_ROWS,
 )
+from .local_recipes import LocalRecipeError, execute_local_recipe, list_local_recipe_names
 from .remote_control import RemoteControlError, RemoteKeyboardController
-from .security import normalize_macro_name, validate_project_path
+from .security import validate_project_path
 
 logger = logging.getLogger(__name__)
 
 CHAT_KEY_PENDING_ACTION = "pending_action"
 CHAT_KEY_SETUP = "setup_state"
 CHAT_KEY_MACRO_OPTIONS = "macro_options"
+CHAT_KEY_CAMERA_AUTO = "camera_auto_after_navigation"
 
 ACTION_TEXT = "text"
 ACTION_KEY = "key"
 ACTION_COMBO = "combo"
 ACTION_MACRO = "macro"
+ACTION_NAVIGATE = "navigate"
+ACTION_CAMERA = "camera"
 
 SETUP_STEP_CONFIRM_RESET = "confirm_reset"
 SETUP_STEP_PASSWORD = "setup_password"
@@ -61,6 +77,7 @@ class BrichTelegramBot:
         self._application.add_handler(CommandHandler("help", self.handle_help))
         self._application.add_handler(CommandHandler("setup", self.handle_setup))
         self._application.add_handler(CommandHandler("cancel", self.handle_cancel))
+        self._application.add_handler(CallbackQueryHandler(self.handle_inline_callback))
         self._application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_text_message))
 
     def run(self) -> None:
@@ -72,6 +89,12 @@ class BrichTelegramBot:
                 "remote_ready": self._config.remote_ready,
             },
         )
+        # Python 3.14 no crea un loop por defecto en el hilo principal.
+        # python-telegram-bot espera un loop activo al llamar run_polling.
+        try:
+            asyncio.get_event_loop()
+        except RuntimeError:
+            asyncio.set_event_loop(asyncio.new_event_loop())
         self._application.run_polling(drop_pending_updates=False)
 
     async def handle_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -105,8 +128,18 @@ class BrichTelegramBot:
             "- Teclas\n"
             "- Combos\n"
             "- Macros\n"
+            "- Camara\n"
             "- Estado\n"
-            "- Ajustes"
+            "- Ajustes\n"
+            "- NAVEGAR\n\n"
+            "Tips:\n"
+            "- Texto soporta acentos y caracteres especiales.\n"
+            "- En Teclas/Combos/Macros usa los botones de ayuda para ejemplos.\n"
+            "- Camara captura una foto desde la webcam local y la envia al chat.\n"
+            "- En Camara puedes activar auto-foto despues de navegar.\n"
+            "- En Macros usa Ideas macros para crear automatizaciones simples.\n"
+            "- NAVEGAR esta enfocado en atajos de pantalla/ventanas.\n"
+            "- Puedes probar teclas nuevas con formato seguro (ej: PRINT_SCREEN)."
         )
         await self._reply(update, help_text, reply_markup=self._main_menu())
 
@@ -132,6 +165,7 @@ class BrichTelegramBot:
         text = (update.message.text or "").strip()
         if not text:
             return
+        canonical_text = self._canonical_input(text)
 
         setup_state = context.chat_data.get(CHAT_KEY_SETUP)
         if isinstance(setup_state, dict) and setup_state.get("active"):
@@ -143,37 +177,123 @@ class BrichTelegramBot:
 
         pending_action = context.chat_data.get(CHAT_KEY_PENDING_ACTION)
         if isinstance(pending_action, str):
-            await self._handle_pending_action(update, context, pending_action, text)
+            await self._handle_pending_action(update, context, pending_action, canonical_text)
             return
 
-        if text == "Texto":
-            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_TEXT
-            await self._reply(update, "Escribe el texto a enviar (max 500 chars):")
-            return
-        if text == "Teclas":
-            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_KEY
-            await self._reply(update, "Selecciona o escribe una tecla:", reply_markup=self._key_menu())
-            return
-        if text == "Combos":
-            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_COMBO
-            await self._reply(update, "Escribe un combo, ejemplo: CTRL+ALT+T")
-            return
-        if text == "Macros":
-            await self._begin_macro_flow(update, context)
-            return
-        if text == "Estado":
-            await self._send_status(update)
-            return
-        if text == "Ajustes":
-            await self._send_settings(update)
-            return
-        if text.lower() == "cancelar":
+        lower_text = canonical_text.lower()
+        if lower_text in {"cancelar", "menu principal"}:
             await self.handle_cancel(update, context)
             return
 
+        if canonical_text == "Texto":
+            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_TEXT
+            await self._reply(
+                update,
+                "Modo Texto:\n"
+                "- Escribe cualquier texto, incluidos acentos y caracteres especiales.\n"
+                "- Se enviara tal cual al script remoto.\n"
+                "- Usa Cancelar para salir.",
+                reply_markup=self._text_menu(),
+            )
+            return
+        if canonical_text == "Teclas":
+            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_KEY
+            await self._reply(
+                update,
+                self._key_help_text(),
+                reply_markup=self._key_menu(),
+            )
+            return
+        if canonical_text == "Combos":
+            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_COMBO
+            await self._reply(
+                update,
+                self._combo_help_text(),
+                reply_markup=self._combo_menu(),
+            )
+            await self._reply(
+                update,
+                "Atajos inline (tap para ejecutar de inmediato):",
+                reply_markup=self._combo_inline_menu(),
+            )
+            return
+        if canonical_text == "Macros":
+            await self._begin_macro_flow(update, context)
+            return
+        if canonical_text == "Camara":
+            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_CAMERA
+            await self._reply(
+                update,
+                self._camera_help_text(),
+                reply_markup=self._camera_menu(),
+            )
+            await self._reply(
+                update,
+                self._camera_auto_status_text(context),
+                reply_markup=self._camera_menu(),
+            )
+            return
+        if canonical_text == "Estado":
+            await self._send_status(update)
+            return
+        if canonical_text == "Ajustes":
+            await self._send_settings(update)
+            return
+        if canonical_text == "NAVEGAR":
+            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_NAVIGATE
+            await self._reply(
+                update,
+                self._navigation_help_text(),
+                reply_markup=self._navigation_menu(),
+            )
+            await self._reply(
+                update,
+                self._camera_auto_status_text(context),
+                reply_markup=self._navigation_menu(),
+            )
+            await self._reply(
+                update,
+                self._navigation_shortcuts_text(),
+                reply_markup=self._navigation_menu(),
+            )
+            return
         await self._reply(
             update,
-            "No reconozco esa opcion. Usa /help o el menu principal.",
+            "No reconozco esa opcion. Usa /help o responde con un boton del menu.",
+            reply_markup=self._main_menu(),
+        )
+
+    async def handle_inline_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        query = update.callback_query
+        if not query:
+            return
+        await query.answer()
+
+        if not await self._ensure_authorized(update):
+            return
+
+        data = query.data or ""
+        if data == "combo:help":
+            await self._reply(update, self._combo_help_text(), reply_markup=self._combo_menu())
+            return
+        if not data.startswith("combo:"):
+            return
+
+        if not self._config.remote_ready:
+            await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
+            return
+
+        combo = data.split(":", 1)[1]
+        try:
+            sent_combo = await asyncio.to_thread(self._controller().send_combo, combo)
+        except (ValueError, RemoteControlError) as exc:
+            await self._reply(update, f"Error: {exc}\n{self._action_hint(ACTION_COMBO)}", reply_markup=self._combo_menu())
+            return
+
+        context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
+        await self._reply(
+            update,
+            self._dynamic_success_message(ACTION_COMBO, f"Combo enviado desde inline keyboard: {sent_combo}"),
             reply_markup=self._main_menu(),
         )
 
@@ -184,48 +304,266 @@ class BrichTelegramBot:
         action: str,
         text: str,
     ) -> None:
-        if text.lower() == "cancelar":
+        canonical_text = self._canonical_input(text)
+        lower_text = canonical_text.lower()
+        if lower_text in {"cancelar", "menu principal"}:
             await self.handle_cancel(update, context)
             return
 
-        if not self._config.remote_ready:
+        remote_actions = {ACTION_TEXT, ACTION_KEY, ACTION_COMBO, ACTION_MACRO, ACTION_NAVIGATE}
+        if action in remote_actions and not self._config.remote_ready:
             context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
             await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
             return
 
         try:
             if action == ACTION_TEXT:
-                sent_text = await asyncio.to_thread(self._controller().send_text, text)
+                sent_text = await asyncio.to_thread(self._controller().send_text, canonical_text)
                 await self._reply(
                     update,
-                    f"Texto enviado: {sent_text!r}",
+                    self._dynamic_success_message(
+                        ACTION_TEXT,
+                        f'Texto enviado correctamente.\nContenido: "{self._preview_text(sent_text)}"',
+                    ),
                     reply_markup=self._main_menu(),
                 )
                 context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
             elif action == ACTION_KEY:
-                sent_key = await asyncio.to_thread(self._controller().send_key, text)
-                await self._reply(update, f"Tecla enviada: {sent_key}", reply_markup=self._main_menu())
-                context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
-            elif action == ACTION_COMBO:
-                sent_combo = await asyncio.to_thread(self._controller().send_combo, text)
-                await self._reply(update, f"Combo enviado: {sent_combo}", reply_markup=self._main_menu())
-                context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
-            elif action == ACTION_MACRO:
-                if text == "Listar macros":
-                    await self._begin_macro_flow(update, context)
+                if canonical_text == "Listar teclas":
+                    await self._reply(update, self._list_keys_text(), reply_markup=self._key_menu())
                     return
-                macro_name = await asyncio.to_thread(self._controller().run_macro, text)
+                if canonical_text == "Ayuda teclas":
+                    await self._reply(update, self._key_help_text(), reply_markup=self._key_menu())
+                    return
+                sent_key = await asyncio.to_thread(self._controller().send_key, canonical_text)
                 await self._reply(
                     update,
-                    f"Macro ejecutada: {macro_name}",
+                    self._dynamic_success_message(ACTION_KEY, f"Tecla enviada: {sent_key}"),
                     reply_markup=self._main_menu(),
                 )
                 context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
+            elif action == ACTION_COMBO:
+                if canonical_text == "Ejemplos combos":
+                    await self._reply(update, self._combo_examples_text(), reply_markup=self._combo_menu())
+                    await self._reply(update, "Atajos inline:", reply_markup=self._combo_inline_menu())
+                    return
+                if canonical_text == "Ayuda combos":
+                    await self._reply(update, self._combo_help_text(), reply_markup=self._combo_menu())
+                    await self._reply(update, "Atajos inline:", reply_markup=self._combo_inline_menu())
+                    return
+                sent_combo = await asyncio.to_thread(
+                    self._controller().send_combo,
+                    self._normalize_navigation_input(canonical_text),
+                )
+                await self._reply(
+                    update,
+                    self._dynamic_success_message(ACTION_COMBO, f"Combo enviado: {sent_combo}"),
+                    reply_markup=self._main_menu(),
+                )
+                context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
+            elif action == ACTION_MACRO:
+                if canonical_text == "Listar macros":
+                    await self._begin_macro_flow(update, context)
+                    return
+                if canonical_text == "Ideas macros":
+                    await self._reply(
+                        update,
+                        self._macro_ideas_text(),
+                        reply_markup=self._macro_menu_hint(),
+                    )
+                    return
+                if canonical_text == "Plantilla recipe":
+                    await self._reply(
+                        update,
+                        self._macro_recipe_template_text(),
+                        reply_markup=self._macro_menu_hint(),
+                    )
+                    return
+                if canonical_text == "Ayuda macros":
+                    await self._reply(update, self._macro_help_text(), reply_markup=self._macro_menu_hint())
+                    return
+                macro_meta = context.chat_data.get(CHAT_KEY_MACRO_OPTIONS, {})
+                local_recipes = set(macro_meta.get("local", [])) if isinstance(macro_meta, dict) else set()
+                if canonical_text.startswith("LOCAL:"):
+                    local_name = canonical_text.split(":", 1)[1].strip()
+                    steps_count = await asyncio.to_thread(
+                        execute_local_recipe,
+                        self._config.local_recipes_path,
+                        local_name,
+                        self._controller(),
+                    )
+                    await self._reply(
+                        update,
+                        self._dynamic_success_message(
+                            ACTION_MACRO,
+                            f"Recipe local ejecutada: {local_name} ({steps_count} pasos)",
+                        ),
+                        reply_markup=self._main_menu(),
+                    )
+                    context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
+                    return
+                if canonical_text in local_recipes:
+                    steps_count = await asyncio.to_thread(
+                        execute_local_recipe,
+                        self._config.local_recipes_path,
+                        canonical_text,
+                        self._controller(),
+                    )
+                    await self._reply(
+                        update,
+                        self._dynamic_success_message(
+                            ACTION_MACRO,
+                            f"Recipe local ejecutada: {canonical_text} ({steps_count} pasos)",
+                        ),
+                        reply_markup=self._main_menu(),
+                    )
+                    context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
+                    return
+
+                macro_name = await asyncio.to_thread(self._controller().run_macro, canonical_text)
+                await self._reply(
+                    update,
+                    self._dynamic_success_message(ACTION_MACRO, f"Macro ejecutada: {macro_name}"),
+                    reply_markup=self._main_menu(),
+                )
+                context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
+            elif action == ACTION_NAVIGATE:
+                if canonical_text == "Ayuda navegar":
+                    await self._reply(
+                        update,
+                        self._navigation_help_text(),
+                        reply_markup=self._navigation_menu(),
+                    )
+                    return
+                if canonical_text == "Atajos navegar":
+                    await self._reply(
+                        update,
+                        self._navigation_shortcuts_text(),
+                        reply_markup=self._navigation_menu(),
+                    )
+                    return
+                if canonical_text == "Auto tras navegar: ON":
+                    self._set_camera_auto_enabled(context, True)
+                    await self._reply(
+                        update,
+                        "Auto-foto tras navegacion activada.",
+                        reply_markup=self._navigation_menu(),
+                    )
+                    return
+                if canonical_text == "Auto tras navegar: OFF":
+                    self._set_camera_auto_enabled(context, False)
+                    await self._reply(
+                        update,
+                        "Auto-foto tras navegacion desactivada.",
+                        reply_markup=self._navigation_menu(),
+                    )
+                    return
+                if canonical_text in {"Tomar foto", "Tomar otra"}:
+                    try:
+                        captured = await asyncio.to_thread(
+                            capture_webcam_photo,
+                            self._config.camera_device_index,
+                            self._config.camera_warmup_frames,
+                            self._config.camera_timeout_sec,
+                        )
+                        await self._reply_photo(update, captured, reply_markup=self._navigation_menu())
+                    except CameraCaptureError as exc:
+                        await self._reply(
+                            update,
+                            f"No se pudo tomar foto: {exc}",
+                            reply_markup=self._navigation_menu(),
+                        )
+                    return
+
+                normalized_input = self._normalize_navigation_input(canonical_text)
+                if "+" in normalized_input:
+                    sent = await asyncio.to_thread(self._controller().send_combo, normalized_input)
+                    detail = f"Atajo de navegacion enviado: {sent}"
+                else:
+                    sent = await asyncio.to_thread(self._controller().send_key, normalized_input)
+                    detail = f"Tecla de navegacion enviada: {sent}"
+
+                await self._reply(
+                    update,
+                    self._dynamic_success_message(
+                        ACTION_NAVIGATE,
+                        f"{detail}\nPuedes seguir navegando o usar Cancelar.",
+                    ),
+                    reply_markup=self._navigation_menu(),
+                )
+                if self._camera_auto_enabled(context):
+                    try:
+                        captured = await asyncio.to_thread(
+                            capture_webcam_photo,
+                            self._config.camera_device_index,
+                            self._config.camera_warmup_frames,
+                            self._config.camera_timeout_sec,
+                        )
+                        await self._reply_photo(update, captured, reply_markup=self._navigation_menu())
+                    except CameraCaptureError as exc:
+                        await self._reply(
+                            update,
+                            f"Auto-foto tras navegar fallida: {exc}",
+                            reply_markup=self._navigation_menu(),
+                        )
+            elif action == ACTION_CAMERA:
+                if canonical_text == "Ayuda camara":
+                    await self._reply(
+                        update,
+                        self._camera_help_text(),
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                if canonical_text == "Estado camara":
+                    await self._reply(
+                        update,
+                        self._camera_auto_status_text(context),
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                if canonical_text == "Auto tras navegar: ON":
+                    self._set_camera_auto_enabled(context, True)
+                    await self._reply(
+                        update,
+                        "Auto-foto tras navegacion activada.",
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                if canonical_text == "Auto tras navegar: OFF":
+                    self._set_camera_auto_enabled(context, False)
+                    await self._reply(
+                        update,
+                        "Auto-foto tras navegacion desactivada.",
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                if canonical_text not in {"Tomar foto", "Tomar otra"}:
+                    await self._reply(
+                        update,
+                        "Usa los botones de camara para capturar una foto.",
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                try:
+                    captured = await asyncio.to_thread(
+                        capture_webcam_photo,
+                        self._config.camera_device_index,
+                        self._config.camera_warmup_frames,
+                        self._config.camera_timeout_sec,
+                    )
+                    await self._reply_photo(update, captured, reply_markup=self._camera_menu())
+                except CameraCaptureError as exc:
+                    await self._reply(
+                        update,
+                        f"No se pudo tomar foto: {exc}",
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
             else:
                 await self._reply(update, "Estado interno invalido. Usa /cancel.")
                 return
-        except (ValueError, RemoteControlError) as exc:
-            await self._reply(update, f"Error: {exc}")
+        except (ValueError, RemoteControlError, LocalRecipeError) as exc:
+            await self._reply(update, f"Error: {exc}\n{self._action_hint(action)}", reply_markup=self._action_menu(action))
             return
 
     async def _begin_macro_flow(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -233,23 +571,41 @@ class BrichTelegramBot:
             await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
             return
         context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_MACRO
-        macros: list[str] = []
+        remote_macros: list[str] = []
+        local_recipes: list[str] = []
         try:
-            macros = await asyncio.to_thread(self._controller().list_macros)
+            remote_macros = await asyncio.to_thread(self._controller().list_macros)
         except RemoteControlError as exc:
             await self._reply(update, f"No se pudieron listar macros: {exc}")
-        context.chat_data[CHAT_KEY_MACRO_OPTIONS] = macros
-        if macros:
+        try:
+            local_recipes = await asyncio.to_thread(list_local_recipe_names, self._config.local_recipes_path)
+        except LocalRecipeError as exc:
+            await self._reply(update, f"No se pudieron cargar recipes locales: {exc}")
+
+        context.chat_data[CHAT_KEY_MACRO_OPTIONS] = {
+            "remote": remote_macros,
+            "local": local_recipes,
+        }
+        merged_options = [*remote_macros, *[f"LOCAL:{name}" for name in local_recipes]]
+
+        if merged_options:
+            summary_lines = [
+                "Modo Macros:",
+                f"- Macros remotas: {len(remote_macros)}",
+                f"- Recipes locales: {len(local_recipes)}",
+                "- Usa Ideas macros para aprender a crear automatizaciones simples.",
+            ]
             await self._reply(
                 update,
-                "Selecciona una macro o escribe el nombre manualmente:",
-                reply_markup=self._macro_menu(macros),
+                "\n".join(summary_lines),
+                reply_markup=self._macro_menu(merged_options),
             )
             return
         await self._reply(
             update,
-            "No se detectaron macros automaticamente. Escribe el nombre de la macro:",
-            reply_markup=ReplyKeyboardMarkup(MACRO_MENU_FOOTER, resize_keyboard=True),
+            "No se detectaron macros remotas ni recipes locales.\n"
+            "Usa Ideas macros para ver plantillas y como crearlas.",
+            reply_markup=self._macro_menu_hint(),
         )
 
     async def _send_status(self, update: Update) -> None:
@@ -264,7 +620,7 @@ class BrichTelegramBot:
 
         service = snapshot.get("service", {})
         ble = snapshot.get("ble", {})
-        ble_json = json.dumps(ble, ensure_ascii=True, indent=2) if ble else "{}"
+        ble_json = json.dumps(ble, ensure_ascii=False, indent=2) if ble else "{}"
         message = (
             "Estado remoto:\n"
             f"- Servicio active: {service.get('active', 'unknown')}\n"
@@ -568,6 +924,10 @@ class BrichTelegramBot:
             "RPI_SSH_KEY_PATH": payload.get("RPI_SSH_KEY_PATH", ""),
             "RPI_PROJECT_PATH": payload.get("RPI_PROJECT_PATH", ""),
             "SSH_TIMEOUT_SEC": payload.get("SSH_TIMEOUT_SEC", "10"),
+            "CAMERA_DEVICE_INDEX": str(self._config.camera_device_index),
+            "CAMERA_WARMUP_FRAMES": str(self._config.camera_warmup_frames),
+            "CAMERA_TIMEOUT_SEC": str(self._config.camera_timeout_sec),
+            "LOCAL_RECIPES_PATH": str(self._config.local_recipes_path),
             "LOG_LEVEL": payload.get("LOG_LEVEL", "INFO"),
         }
 
@@ -590,13 +950,271 @@ class BrichTelegramBot:
             f"RPI_AUTH_SECRET={auth_secret}\n"
             f"RPI_PROJECT_PATH={payload.get('RPI_PROJECT_PATH')}\n"
             f"SSH_TIMEOUT_SEC={payload.get('SSH_TIMEOUT_SEC')}\n"
+            f"CAMERA_DEVICE_INDEX={self._config.camera_device_index}\n"
+            f"CAMERA_WARMUP_FRAMES={self._config.camera_warmup_frames}\n"
+            f"CAMERA_TIMEOUT_SEC={self._config.camera_timeout_sec}\n"
+            f"LOCAL_RECIPES_PATH={self._config.local_recipes_path}\n"
             f"LOG_LEVEL={payload.get('LOG_LEVEL')}"
         )
 
     async def _reply(self, update: Update, text: str, reply_markup: Any | None = None) -> None:
-        if not update.message:
+        target_message = update.message
+        if target_message is None and update.callback_query:
+            target_message = update.callback_query.message
+        if target_message is None:
             return
-        await update.message.reply_text(text, reply_markup=reply_markup)
+        await target_message.reply_text(text, reply_markup=reply_markup)
+
+    async def _reply_photo(
+        self,
+        update: Update,
+        photo: CapturedPhoto,
+        reply_markup: Any | None = None,
+    ) -> None:
+        target_message = update.message
+        if target_message is None and update.callback_query:
+            target_message = update.callback_query.message
+        if target_message is None:
+            return
+
+        caption = (
+            f"Foto capturada desde webcam local.\n"
+            f"Resolucion: {photo.width}x{photo.height}"
+        )
+        try:
+            with photo.path.open("rb") as photo_file:
+                await target_message.reply_photo(
+                    photo=photo_file,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                )
+        finally:
+            try:
+                photo.path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("temporary_photo_cleanup_failed", extra={"path": str(photo.path)})
+
+    def _dynamic_success_message(self, action: str, detail: str) -> str:
+        templates = {
+            ACTION_TEXT: [
+                "Listo, texto enviado.",
+                "Hecho. Texto transmitido.",
+                "Perfecto, texto ejecutado en Raspberry.",
+            ],
+            ACTION_KEY: [
+                "Accion completada.",
+                "Tecla procesada correctamente.",
+                "Listo, la tecla fue enviada.",
+            ],
+            ACTION_COMBO: [
+                "Combinacion aplicada.",
+                "Combo ejecutado correctamente.",
+                "Listo, combo enviado al host remoto.",
+            ],
+            ACTION_MACRO: [
+                "Macro ejecutada con exito.",
+                "Listo, macro disparada.",
+                "Accion de macro completada.",
+            ],
+            ACTION_NAVIGATE: [
+                "Movimiento aplicado.",
+                "Atajo de navegacion ejecutado.",
+                "Navegacion enviada correctamente.",
+            ],
+            ACTION_CAMERA: [
+                "Camara lista.",
+                "Captura completada.",
+                "Foto tomada correctamente.",
+            ],
+        }
+        prefix = random.choice(templates.get(action, ["Operacion completada."]))
+        return f"{prefix}\n{detail}"
+
+    def _action_hint(self, action: str) -> str:
+        if action == ACTION_TEXT:
+            return "Tip: Puedes usar acentos y caracteres especiales. Ejemplo: ping\u00fcino \u00e1\u00e9\u00ed\u00f3\u00fa \u00f1"
+        if action == ACTION_KEY:
+            return "Tip: Usa botones sugeridos o escribe una tecla en MAYUSCULAS, por ejemplo PRINT_SCREEN."
+        if action == ACTION_COMBO:
+            return "Tip: Formato valido MOD+KEY, por ejemplo CTRL+ALT+T o GUI+D."
+        if action == ACTION_MACRO:
+            return "Tip: Usa Listar macros, Ideas macros, Plantilla recipe y Ayuda macros para automatizar."
+        if action == ACTION_NAVIGATE:
+            return "Tip: En NAVEGAR usa teclas como UP, PGDOWN o atajos como ALT+TAB y GUI+TAB."
+        if action == ACTION_CAMERA:
+            return "Tip: En Camara puedes usar captura unica o auto-foto tras navegar."
+        return "Tip: Usa /help para ver opciones."
+
+    def _preview_text(self, text: str, max_len: int = 120) -> str:
+        if len(text) <= max_len:
+            return text
+        return f"{text[: max_len - 3]}..."
+
+    def _canonical_input(self, text: str) -> str:
+        stripped = text.strip()
+        return BUTTON_ALIASES.get(stripped, stripped)
+
+    def _action_menu(self, action: str) -> ReplyKeyboardMarkup:
+        if action == ACTION_TEXT:
+            return self._text_menu()
+        if action == ACTION_KEY:
+            return self._key_menu()
+        if action == ACTION_COMBO:
+            return self._combo_menu()
+        if action == ACTION_MACRO:
+            return self._macro_menu_hint()
+        if action == ACTION_NAVIGATE:
+            return self._navigation_menu()
+        if action == ACTION_CAMERA:
+            return self._camera_menu()
+        return self._main_menu()
+
+    def _list_keys_text(self) -> str:
+        keys_line = ", ".join(self._key_suggestions())
+        return (
+            "Teclas sugeridas:\n"
+            f"{keys_line}\n\n"
+            "Tambien puedes escribir una tecla personalizada segura (A-Z, 0-9, _), por ejemplo PRINT_SCREEN."
+        )
+
+    def _key_help_text(self) -> str:
+        return (
+            "Modo Teclas:\n"
+            "- Puedes elegir una tecla sugerida desde los botones.\n"
+            "- Tambien puedes escribir una tecla nueva en MAYUSCULAS (ej: PRINT_SCREEN).\n"
+            "- Formato permitido para teclas personalizadas: letras, numeros y guion bajo."
+        )
+
+    def _combo_help_text(self) -> str:
+        return (
+            "Modo Combos:\n"
+            "- Formato: MOD+KEY o MOD+MOD+KEY\n"
+            "- MOD validos: CTRL, SHIFT, ALT, GUI\n"
+            "- KEY puede ser TAB, ENTER, ESC, F1..F12 o tokens como PRINT_SCREEN\n"
+            "- Para tecla Windows usa GUI (ej: GUI+D, GUI+TAB, GUI+LEFT)\n"
+            "- Usa Ejemplos combos y atajos inline para respuestas rapidas."
+        )
+
+    def _combo_examples_text(self) -> str:
+        examples = "\n".join(f"- {combo}" for combo in COMMON_COMBO_EXAMPLES)
+        return (
+            f"Ejemplos de combos:\n{examples}\n\n"
+            "Combos Windows utiles para navegacion/pantallas:\n"
+            "- GUI+D (mostrar escritorio)\n"
+            "- GUI+TAB (vista tareas)\n"
+            "- GUI+LEFT / GUI+RIGHT (ajustar ventana)\n"
+            "- GUI+P (cambiar modo de pantalla)\n\n"
+            "Puedes enviar otro combo manualmente."
+        )
+
+    def _macro_help_text(self) -> str:
+        examples = "\n".join(f"- {macro}" for macro in COMMON_MACRO_EXAMPLES)
+        return (
+            "Modo Macros:\n"
+            "- Usa Listar macros para consultar las disponibles en Raspberry.\n"
+            "- Usa Ideas macros para ver recipes listas para automatizar tareas.\n"
+            "- Usa Plantilla recipe para copiar una base JSON.\n"
+            "- Puedes ejecutar macros remotas o recipes locales prefijadas como LOCAL:nombre.\n"
+            "- Para recipes locales, crea/edita el archivo JSON en:\n"
+            f"  {self._config.local_recipes_path}\n"
+            "- Ejemplos remotos comunes:\n"
+            f"{examples}\n"
+            "- Ejemplos de recetas: abrir navegador con URL, abrir terminal y ejecutar comando."
+        )
+
+    def _macro_ideas_text(self) -> str:
+        return (
+            "Ideas de automatizacion con macros/recipes:\n"
+            "- Abrir navegador + URL:\n"
+            "  GUI+R -> text 'chrome https://tu-url' -> ENTER\n"
+            "- Abrir terminal + ejecutar comando:\n"
+            "  CTRL+ALT+T -> wait -> text 'python3 script.py' -> ENTER\n"
+            "- Cambiar ventana y escribir:\n"
+            "  ALT+TAB -> wait -> text 'mensaje'\n\n"
+            "Para recipes locales:\n"
+            f"1) Copia automation_recipes.example.json a {self._config.local_recipes_path.name}\n"
+            "2) Edita pasos (key/combo/text/wait)\n"
+            "3) Vuelve a entrar a Macros y ejecuta LOCAL:nombre_recipe"
+        )
+
+    def _macro_recipe_template_text(self) -> str:
+        template = (
+            "{\n"
+            '  "abrir_navegador_url": [\n'
+            '    {"kind": "combo", "value": "GUI+R"},\n'
+            '    {"kind": "wait", "ms": 500},\n'
+            '    {"kind": "text", "value": "chrome https://tu-url"},\n'
+            '    {"kind": "key", "value": "ENTER"}\n'
+            "  ],\n"
+            '  "abrir_terminal_y_correr": [\n'
+            '    {"kind": "combo", "value": "CTRL+ALT+T"},\n'
+            '    {"kind": "wait", "ms": 900},\n'
+            '    {"kind": "text", "value": "python3 tu_script.py"},\n'
+            '    {"kind": "key", "value": "ENTER"}\n'
+            "  ]\n"
+            "}"
+        )
+        return (
+            "Plantilla base para recipes locales:\n"
+            f"- Guarda este contenido en {self._config.local_recipes_path}\n"
+            "- Reglas: kind en key/combo/text/wait, wait usa ms.\n\n"
+            f"```json\n{template}\n```"
+        )
+
+    def _navigation_help_text(self) -> str:
+        return (
+            "Modo NAVEGAR:\n"
+            "- Enfocado a mover foco, ventanas y pantallas.\n"
+            "- Puedes enviar teclas directas (UP, DOWN, TAB, HOME, PGUP, PGDOWN).\n"
+            "- Tambien atajos (ALT+TAB, ALT+SHIFT+TAB, WIN+TAB, WIN+LEFT, WIN+RIGHT, WIN+P).\n"
+            "- Puedes usar WIN+... o GUI+..., el bot normaliza ambos.\n"
+            "- Incluye atajos de camara: Tomar foto y auto-foto ON/OFF sin salir de NAVEGAR.\n"
+            "- Este modo se mantiene activo para navegar rapido."
+        )
+
+    def _navigation_shortcuts_text(self) -> str:
+        combos = "\n".join(f"- {combo}" for combo in NAVIGATION_COMBO_EXAMPLES)
+        return (
+            "Atajos recomendados para navegacion:\n"
+            f"{combos}\n\n"
+            "Extras utiles:\n"
+            "- F6 / SHIFT+TAB para mover foco en apps.\n"
+            "- CTRL+L para enfocar barra de direccion (navegadores/exploradores).\n"
+            "- GUI+P para gestion de pantallas."
+        )
+
+    def _camera_help_text(self) -> str:
+        return (
+            "Modo Camara:\n"
+            "- Tomar foto/Tomar otra: captura unica manual.\n"
+            "- Auto tras navegar ON/OFF: habilita captura automatica despues de cada accion en NAVEGAR.\n"
+            "- Estado camara: muestra modo actual.\n"
+            "- El archivo se envia al chat y luego se elimina del temporal.\n"
+            "- Si falla, revisa permisos de camara o si otra app la esta usando."
+        )
+
+    def _camera_auto_enabled(self, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        return bool(context.chat_data.get(CHAT_KEY_CAMERA_AUTO, False))
+
+    def _set_camera_auto_enabled(self, context: ContextTypes.DEFAULT_TYPE, enabled: bool) -> None:
+        context.chat_data[CHAT_KEY_CAMERA_AUTO] = enabled
+
+    def _camera_auto_status_text(self, context: ContextTypes.DEFAULT_TYPE) -> str:
+        mode = "ON" if self._camera_auto_enabled(context) else "OFF"
+        return f"Estado auto-foto tras navegar: {mode}"
+
+    def _normalize_navigation_input(self, raw_text: str) -> str:
+        normalized = raw_text.strip().upper()
+        normalized = normalized.replace("WIN+", "GUI+")
+        aliases = {
+            "PAGEUP": "PGUP",
+            "PAGE DOWN": "PGDOWN",
+            "PAGEDOWN": "PGDOWN",
+            "PAGE UP": "PGUP",
+            "RE PAG": "PGUP",
+            "AV PAG": "PGDOWN",
+        }
+        return aliases.get(normalized, normalized)
 
     def _controller(self) -> RemoteKeyboardController:
         return RemoteKeyboardController(self._config)
@@ -604,8 +1222,37 @@ class BrichTelegramBot:
     def _main_menu(self) -> ReplyKeyboardMarkup:
         return ReplyKeyboardMarkup(MAIN_MENU_ROWS, resize_keyboard=True)
 
+    def _text_menu(self) -> ReplyKeyboardMarkup:
+        return ReplyKeyboardMarkup(TEXT_SHORTCUT_ROWS, resize_keyboard=True)
+
     def _key_menu(self) -> ReplyKeyboardMarkup:
         return ReplyKeyboardMarkup(KEY_MENU_ROWS, resize_keyboard=True)
+
+    def _combo_menu(self) -> ReplyKeyboardMarkup:
+        return ReplyKeyboardMarkup(COMBO_SUGGESTION_ROWS, resize_keyboard=True)
+
+    def _combo_inline_menu(self) -> InlineKeyboardMarkup:
+        rows: list[list[InlineKeyboardButton]] = []
+        for row in INLINE_COMBO_SHORTCUTS:
+            buttons = [
+                InlineKeyboardButton(label, callback_data=f"combo:{combo}")
+                for label, combo in row
+            ]
+            rows.append(buttons)
+        rows.append([InlineKeyboardButton("Ayuda combos", callback_data="combo:help")])
+        return InlineKeyboardMarkup(rows)
+
+    def _macro_menu_hint(self) -> ReplyKeyboardMarkup:
+        return ReplyKeyboardMarkup(MACRO_MENU_FOOTER, resize_keyboard=True)
+
+    def _navigation_menu(self) -> ReplyKeyboardMarkup:
+        return ReplyKeyboardMarkup(NAVIGATION_MENU_ROWS, resize_keyboard=True)
+
+    def _camera_menu(self) -> ReplyKeyboardMarkup:
+        return ReplyKeyboardMarkup(CAMERA_MENU_ROWS, resize_keyboard=True)
+
+    def _key_suggestions(self) -> list[str]:
+        return list(KEYBOARD_KEYS)
 
     def _macro_menu(self, macros: list[str]) -> ReplyKeyboardMarkup:
         rows: list[list[str]] = []

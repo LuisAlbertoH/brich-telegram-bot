@@ -21,6 +21,10 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "RPI_SSH_KEY_PATH",
         "RPI_PROJECT_PATH",
         "SSH_TIMEOUT_SEC",
+        "CAMERA_DEVICE_INDEX",
+        "CAMERA_WARMUP_FRAMES",
+        "CAMERA_TIMEOUT_SEC",
+        "LOCAL_RECIPES_PATH",
         "LOG_LEVEL",
         "BRICH_BOT_ENV_FILE",
     ]
@@ -51,6 +55,10 @@ def test_write_and_load_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
             "RPI_SSH_KEY_PATH": "",
             "RPI_PROJECT_PATH": "/home/pi/brich",
             "SSH_TIMEOUT_SEC": "10",
+            "CAMERA_DEVICE_INDEX": "0",
+            "CAMERA_WARMUP_FRAMES": "8",
+            "CAMERA_TIMEOUT_SEC": "6",
+            "LOCAL_RECIPES_PATH": "automation_recipes.json",
             "LOG_LEVEL": "INFO",
         },
         env_file=env_file,
@@ -61,4 +69,7 @@ def test_write_and_load_env_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert config.authorized_chat_id == 12345
     assert config.remote_ready is True
     assert config.fully_configured is True
-
+    assert config.camera_device_index == 0
+    assert config.camera_warmup_frames == 8
+    assert config.camera_timeout_sec == 6
+    assert config.local_recipes_path.name == "automation_recipes.json"

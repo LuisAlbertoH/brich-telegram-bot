@@ -1,0 +1,14 @@
+{
+  "open_browser_google": [
+    { "kind": "combo", "value": "GUI+R" },
+    { "kind": "wait", "ms": 500 },
+    { "kind": "text", "value": "chrome https://www.google.com" },
+    { "kind": "key", "value": "ENTER" }
+  ],
+  "open_terminal_and_run_top": [
+    { "kind": "combo", "value": "CTRL+ALT+T" },
+    { "kind": "wait", "ms": 900 },
+    { "kind": "text", "value": "top" },
+    { "kind": "key", "value": "ENTER" }
+  ]
+}

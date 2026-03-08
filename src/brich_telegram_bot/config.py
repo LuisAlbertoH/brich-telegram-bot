@@ -23,6 +23,10 @@ ENV_KEYS_IN_ORDER = [
     "RPI_SSH_KEY_PATH",
     "RPI_PROJECT_PATH",
     "SSH_TIMEOUT_SEC",
+    "CAMERA_DEVICE_INDEX",
+    "CAMERA_WARMUP_FRAMES",
+    "CAMERA_TIMEOUT_SEC",
+    "LOCAL_RECIPES_PATH",
     "LOG_LEVEL",
 ]
 
@@ -44,6 +48,10 @@ class AppConfig:
     rpi_ssh_key_path: str | None
     rpi_project_path: str | None
     ssh_timeout_sec: int
+    camera_device_index: int
+    camera_warmup_frames: int
+    camera_timeout_sec: int
+    local_recipes_path: Path
     log_level: str
     env_file: Path
 
@@ -88,6 +96,10 @@ class AppConfig:
             f"RPI_AUTH_SECRET={auth_secret}\n"
             f"RPI_PROJECT_PATH={self.rpi_project_path}\n"
             f"SSH_TIMEOUT_SEC={self.ssh_timeout_sec}\n"
+            f"CAMERA_DEVICE_INDEX={self.camera_device_index}\n"
+            f"CAMERA_WARMUP_FRAMES={self.camera_warmup_frames}\n"
+            f"CAMERA_TIMEOUT_SEC={self.camera_timeout_sec}\n"
+            f"LOCAL_RECIPES_PATH={self.local_recipes_path}\n"
             f"LOG_LEVEL={self.log_level}\n"
             f"ENV_FILE={self.env_file}"
         )
@@ -149,6 +161,26 @@ def load_config(env_file: Path | None = None) -> AppConfig:
     rpi_project_path = _normalize_optional(os.getenv("RPI_PROJECT_PATH"))
 
     ssh_timeout_sec = _parse_int(os.getenv("SSH_TIMEOUT_SEC"), "SSH_TIMEOUT_SEC", 10, 1, 120)
+    camera_device_index = _parse_int(os.getenv("CAMERA_DEVICE_INDEX"), "CAMERA_DEVICE_INDEX", 0, 0, 16)
+    camera_warmup_frames = _parse_int(
+        os.getenv("CAMERA_WARMUP_FRAMES"),
+        "CAMERA_WARMUP_FRAMES",
+        8,
+        1,
+        120,
+    )
+    camera_timeout_sec = _parse_int(
+        os.getenv("CAMERA_TIMEOUT_SEC"),
+        "CAMERA_TIMEOUT_SEC",
+        6,
+        1,
+        60,
+    )
+    local_recipes_path = _resolve_optional_path(
+        os.getenv("LOCAL_RECIPES_PATH"),
+        base_dir=final_env_file.parent,
+        default_name="automation_recipes.json",
+    )
 
     log_level = (os.getenv("LOG_LEVEL") or "INFO").strip().upper()
     if log_level not in VALID_LOG_LEVELS:
@@ -176,6 +208,10 @@ def load_config(env_file: Path | None = None) -> AppConfig:
         rpi_ssh_key_path=rpi_ssh_key_path,
         rpi_project_path=rpi_project_path,
         ssh_timeout_sec=ssh_timeout_sec,
+        camera_device_index=camera_device_index,
+        camera_warmup_frames=camera_warmup_frames,
+        camera_timeout_sec=camera_timeout_sec,
+        local_recipes_path=local_recipes_path,
         log_level=log_level,
         env_file=final_env_file,
     )
@@ -186,6 +222,16 @@ def _normalize_optional(raw: str | None) -> str | None:
         return None
     stripped = raw.strip()
     return stripped if stripped else None
+
+
+def _resolve_optional_path(raw: str | None, base_dir: Path, default_name: str) -> Path:
+    stripped = (raw or "").strip()
+    if not stripped:
+        return (base_dir / default_name).resolve()
+    candidate = Path(stripped).expanduser()
+    if not candidate.is_absolute():
+        candidate = (base_dir / candidate).resolve()
+    return candidate
 
 
 def is_valid_host(host: str) -> bool:

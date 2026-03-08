@@ -1,45 +1,31 @@
-# brich-telegram-bot
+﻿# 🤖 brich-telegram-bot
 
-Bot privado de Telegram para controlar una Raspberry Pi por SSH y ejecutar acciones de teclado remoto.
+Bot privado de Telegram para controlar una Raspberry Pi por SSH y ejecutar acciones de teclado remoto de forma segura.
 
-## Caracteristicas
-- Bot de Telegram con menu interactivo por botones (`ReplyKeyboardMarkup`).
-- Control remoto por SSH contra scripts de la Raspberry:
-  - `python3 /home/pi/brich/keyboard_ctl.py text "..."`
-  - `python3 /home/pi/brich/keyboard_ctl.py key ENTER`
-  - `python3 /home/pi/brich/keyboard_ctl.py combo "CTRL+ALT+T"`
-  - `python3 /home/pi/brich/keyboard_ctl.py macro open_terminal_linux`
-- Flujo de setup conversacional para crear/actualizar `.env`.
-- Bot de un solo usuario (`AUTHORIZED_CHAT_ID`).
-- Validaciones de input, quoting de comandos SSH, timeouts y manejo de errores.
-- Logs estructurados en JSON sin exponer secretos.
+## ✨ Que hace este bot
+- 🎛️ Menu interactivo con `ReplyKeyboardMarkup` (Texto, Teclas, Combos, Macros, Camara, Estado, Ajustes, NAVEGAR).
+- ⚡ Atajos `InlineKeyboardMarkup` para combos frecuentes (incluyendo tecla Windows).
+- 🔤 Soporte correcto de acentos y caracteres especiales (normalizacion Unicode NFC).
+- 📸 Captura de webcam local y envio al chat autorizado.
+- 🔁 Modo auto-foto tras navegar (`Auto tras navegar: ON/OFF`).
+- 🧩 Recipes locales (`LOCAL:<nombre>`) para automatizar flujos simples.
+- 🔒 Bot de un solo usuario (`AUTHORIZED_CHAT_ID`) con validaciones de seguridad.
+- 🛡️ Sanitizacion de inputs + quoting seguro + timeouts SSH + logs estructurados.
 
-## Requisitos
-- Python 3.11+
-- Raspberry accesible por SSH en la misma LAN
-- Token de bot de Telegram (`TELEGRAM_BOT_TOKEN`)
+## 🧱 Arquitectura rapida
+1. Telegram recibe comando o boton.
+2. El bot valida autorizacion y sanitiza input.
+3. Para acciones remotas, ejecuta `keyboard_ctl.py` por SSH en Raspberry.
+4. Para Camara, captura localmente en la maquina donde corre el bot.
+5. Devuelve resultado al chat con confirmacion o error claro.
 
-## Estructura
-```
-brich-telegram-bot/
-  src/brich_telegram_bot/
-    config.py
-    security.py
-    ssh_client.py
-    remote_control.py
-    telegram_bot.py
-  docs/COMMANDS.md
-  deploy/launchd/com.brich.telegram-bot.plist
-  tests/
-  scripts/smoke_test.py
-  .env.example
-  requirements.txt
-  run_bot.sh
-  run_bot.ps1
-  main.py
-```
+## 📦 Requisitos
+- Python `3.11+`
+- Raspberry Pi accesible por SSH en la misma LAN
+- `TELEGRAM_BOT_TOKEN`
+- Webcam local funcional (si usaras Camara)
 
-## Instalacion
+## 🚀 Instalacion
 
 ### macOS / Linux
 ```bash
@@ -59,41 +45,45 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-## Primer setup (si no existe .env)
-1. Asegura que `TELEGRAM_BOT_TOKEN` este definido en entorno o `.env`.
-2. Inicia el bot con `python main.py` (o script de arranque).
-3. En Telegram, ejecuta `/start` o `/setup`.
-4. Completa el flujo:
-   - Password de setup (validar existente o crear nueva)
-   - IP/host Raspberry
-   - Usuario/puerto SSH
-   - Modo de auth SSH (`password` o `key`)
-   - Ruta remota del proyecto (`RPI_PROJECT_PATH`)
-5. El bot guarda `.env` automaticamente y fija `AUTHORIZED_CHAT_ID` al chat actual.
+## 🔐 Configuracion de entorno (`.env`)
+Referencia base: `.env.example`.
 
-## Variables de entorno
-Ver `.env.example`. Variables esperadas:
-- `TELEGRAM_BOT_TOKEN` (obligatoria)
-- `AUTHORIZED_CHAT_ID`
-- `SETUP_PASSWORD`
-- `RPI_HOST`
-- `RPI_PORT`
-- `RPI_USER`
-- `RPI_AUTH_MODE` (`password` o `key`)
-- `RPI_PASSWORD`
-- `RPI_SSH_KEY_PATH`
-- `RPI_PROJECT_PATH`
-- `SSH_TIMEOUT_SEC`
-- `LOG_LEVEL`
+Variables clave:
+- `TELEGRAM_BOT_TOKEN`: token del bot de Telegram (obligatorio).
+- `AUTHORIZED_CHAT_ID`: chat permitido para operar el bot (se puede definir en setup).
+- `SETUP_PASSWORD`: clave para proteger `/setup`.
+- `RPI_HOST`, `RPI_PORT`, `RPI_USER`: destino SSH de Raspberry.
+- `RPI_AUTH_MODE`: `password` o `key`.
+- `RPI_PASSWORD`: obligatorio si `RPI_AUTH_MODE=password`.
+- `RPI_SSH_KEY_PATH`: obligatorio si `RPI_AUTH_MODE=key`.
+- `RPI_PROJECT_PATH`: ruta remota donde existe `keyboard_ctl.py`.
+- `SSH_TIMEOUT_SEC`: timeout SSH por comando.
+- `CAMERA_DEVICE_INDEX`, `CAMERA_WARMUP_FRAMES`, `CAMERA_TIMEOUT_SEC`: control de webcam.
+- `LOCAL_RECIPES_PATH`: JSON local de recipes.
+- `LOG_LEVEL`: `DEBUG`, `INFO`, `WARNING`, `ERROR`.
 
-## Ejecucion
+## 🛠️ Setup inicial por Telegram
+Si `.env` no existe o falta configuracion:
+1. Inicia el bot.
+2. En Telegram usa `/start` o `/setup`.
+3. Sigue el asistente:
+   - password de setup
+   - host/puerto/usuario SSH
+   - auth mode (`password` o `key`)
+   - ruta de proyecto remoto
+   - timeout y nivel de log
+4. El bot guarda `.env` automaticamente.
 
-### Script simple
+Si `.env` ya existe y esta completo, el bot arranca sin pedir setup.
+
+## ▶️ Ejecucion
+
+### Script rapido (macOS/Linux)
 ```bash
 ./run_bot.sh
 ```
 
-### PowerShell
+### Script rapido (Windows)
 ```powershell
 .\run_bot.ps1
 ```
@@ -103,57 +93,118 @@ Ver `.env.example`. Variables esperadas:
 python main.py
 ```
 
-## Menu y comandos
-- `/start`
-- `/help`
-- `/setup`
-- `/cancel`
-- Botones:
-  - Texto
-  - Teclas
-  - Combos
-  - Macros
-  - Estado
-  - Ajustes
+## 🧭 Guia de uso rapido
 
-Detalle de uso y ejemplos en [`docs/COMMANDS.md`](docs/COMMANDS.md).
+### 1) 📝 Texto
+- Entra a `Texto`.
+- Escribe cualquier mensaje (incluye acentos, simbolos y saltos de linea).
+- El bot ejecuta remoto: `keyboard_ctl.py text "..."`.
 
-## launchd (macOS, opcional)
-Archivo plantilla: `deploy/launchd/com.brich.telegram-bot.plist`
+### 2) 🧭 NAVEGAR + 📸 evidencia automatica
+- Entra a `NAVEGAR`.
+- Usa flechas, TAB, PGUP/PGDOWN, ALT+TAB, WIN+TAB, WIN+LEFT/RIGHT, etc.
+- Activa `Auto tras navegar: ON` para tomar foto despues de cada accion.
+- Usa `Tomar foto` para captura unica manual sin salir del menu.
 
-Pasos:
-1. Copia y ajusta rutas absolutas.
-2. Carga el servicio:
-   ```bash
-   launchctl unload ~/Library/LaunchAgents/com.brich.telegram-bot.plist 2>/dev/null || true
-   cp deploy/launchd/com.brich.telegram-bot.plist ~/Library/LaunchAgents/
-   launchctl load ~/Library/LaunchAgents/com.brich.telegram-bot.plist
-   launchctl start com.brich.telegram-bot
-   ```
+### 3) 🎬 Macros y recipes
+- Entra a `Macros`.
+- Usa `Listar macros` para ver macros remotas.
+- Usa `Ideas macros` para inspirarte.
+- Usa `Plantilla recipe` para copiar base JSON.
+- Ejecuta recipe local con `LOCAL:nombre_recipe`.
 
-## Pruebas
+### 4) 📊 Estado y ⚙️ Ajustes
+- `Estado`: revisa servicio `brich-keyboard.service` y status BLE.
+- `Ajustes`: muestra configuracion activa (sin secretos).
+
+## 🧩 Recipes locales (automatizacion)
+Ruta por defecto: `automation_recipes.json` (configurable por `LOCAL_RECIPES_PATH`).
+
+Plantilla incluida: `automation_recipes.example.json`.
+
+Ejemplo minimo:
+```json
+{
+  "abrir_navegador_url": [
+    {"kind": "combo", "value": "GUI+R"},
+    {"kind": "wait", "ms": 500},
+    {"kind": "text", "value": "chrome https://www.google.com"},
+    {"kind": "key", "value": "ENTER"}
+  ]
+}
+```
+
+Tipos de paso soportados:
+- `key`
+- `combo`
+- `text`
+- `wait` (milisegundos)
+
+## 🧪 Pruebas
 ```bash
 pytest
 python scripts/smoke_test.py
 ```
 
-## Troubleshooting
-- Error `TELEGRAM_BOT_TOKEN es obligatorio`:
-  - Define token real en `.env` o variable de entorno.
-- `Acceso denegado`:
-  - El `chat_id` no coincide con `AUTHORIZED_CHAT_ID`.
-- Error SSH:
-  - Revisa `RPI_HOST`, `RPI_USER`, auth mode y timeout.
-  - Verifica conectividad desde la maquina local:
-    - `ssh pi@192.168.1.50`
-- Servicio no activo:
-  - En Raspberry: `systemctl status brich-keyboard.service`
-- BLE sin estado:
-  - Revisa existencia de `/tmp/brich_keyboard_status.json`.
-
-## Seguridad minima aplicada
-- Validacion estricta de teclas, combos y macros.
-- Sanitizacion de texto y limite de longitud.
-- Quoting seguro en comandos enviados por SSH.
+## 🛡️ Seguridad aplicada
+- Validacion estricta de teclas, combos y nombres de macro.
+- Sanitizacion de texto con limite de longitud.
+- Quoting seguro para comandos remotos.
 - Timeouts SSH configurables.
-- Logs JSON sin contrasenas/token.
+- Logs JSON sin secretos.
+
+## 🧯 Troubleshooting rapido
+- ❌ `TELEGRAM_BOT_TOKEN es obligatorio`
+  - Verifica `.env` y formato del token.
+- ❌ `Acceso denegado`
+  - Revisa `AUTHORIZED_CHAT_ID`.
+- ❌ Falla SSH
+  - Valida host/usuario/credencial/timeout y conectividad LAN.
+- ❌ Camara no captura
+  - Revisa permisos de webcam y `CAMERA_DEVICE_INDEX`.
+- ❌ Recipe local no aparece
+  - Verifica `LOCAL_RECIPES_PATH`, JSON valido y nombre de recipe.
+
+Guia extendida: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
+
+## 📚 Documentacion
+- 🎮 Comandos y menus: [`docs/COMMANDS.md`](docs/COMMANDS.md)
+- 🧭 Casos de uso guiados: [`docs/USAGE_GUIDE.md`](docs/USAGE_GUIDE.md)
+- 🧯 Troubleshooting completo: [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
+
+## 🍎 Ejecucion persistente en macOS (launchd)
+Plantilla: `deploy/launchd/com.brich.telegram-bot.plist`
+
+Pasos sugeridos:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.brich.telegram-bot.plist 2>/dev/null || true
+cp deploy/launchd/com.brich.telegram-bot.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.brich.telegram-bot.plist
+launchctl start com.brich.telegram-bot
+```
+
+## 🗂️ Estructura del proyecto
+```text
+brich-telegram-bot/
+  src/brich_telegram_bot/
+    config.py
+    security.py
+    ssh_client.py
+    remote_control.py
+    camera_capture.py
+    local_recipes.py
+    telegram_bot.py
+  docs/
+    COMMANDS.md
+    USAGE_GUIDE.md
+    TROUBLESHOOTING.md
+  deploy/launchd/com.brich.telegram-bot.plist
+  tests/
+  scripts/smoke_test.py
+  .env.example
+  automation_recipes.example.json
+  requirements.txt
+  run_bot.sh
+  run_bot.ps1
+  main.py
+```

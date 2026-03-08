@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import unicodedata
 
 from .constants import KEYBOARD_KEYS, MAX_TEXT_LENGTH
 
@@ -10,10 +11,17 @@ ALLOWED_SIMPLE_KEYS = set(KEYBOARD_KEYS)
 ALLOWED_COMBO_SPECIAL = ALLOWED_SIMPLE_KEYS | {"DELETE", "HOME", "END", "PGUP", "PGDOWN"}
 MACRO_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 PROJECT_PATH_PATTERN = re.compile(r"^/[A-Za-z0-9._/\-]+$")
+KEY_TOKEN_PATTERN = re.compile(r"^[A-Z0-9_]{1,32}$")
 
 
 def sanitize_text_input(text: str) -> str:
-    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+    cleaned = unicodedata.normalize("NFC", text)
+    cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "")
+    cleaned = "".join(
+        char
+        for char in cleaned
+        if char in {"\n", "\t"} or ord(char) >= 32
+    )
     if not cleaned.strip():
         raise ValueError("El texto no puede ser vacio")
     if len(cleaned) > MAX_TEXT_LENGTH:
@@ -23,7 +31,9 @@ def sanitize_text_input(text: str) -> str:
 
 def normalize_simple_key(key: str) -> str:
     normalized = key.strip().upper()
-    if normalized not in ALLOWED_SIMPLE_KEYS:
+    if normalized in ALLOWED_SIMPLE_KEYS:
+        return normalized
+    if not KEY_TOKEN_PATTERN.fullmatch(normalized):
         raise ValueError(f"Tecla invalida: {key}")
     return normalized
 
@@ -77,5 +87,6 @@ def _is_valid_combo_key(key: str) -> bool:
         return True
     if len(key) == 1 and re.fullmatch(r"[A-Z0-9]", key):
         return True
+    if KEY_TOKEN_PATTERN.fullmatch(key):
+        return True
     return False
-
