@@ -86,7 +86,8 @@ NAVIGATION_MENU_ROWS: list[list[str]] = [
     ["\U0001F5A5\ufe0f WIN+D", "\U0001F4C1 WIN+E", "\U0001F5A5\ufe0f WIN+P", "\U0001F5D5 WIN+M"],
     ["\U0001F9ED WIN+CTRL+LEFT", "\U0001F9ED WIN+CTRL+RIGHT"],
     ["\U0001F310 CTRL+L", "\U0001F3AF F6", "\u2420 SPACE", "\u232B BACKSPACE", "\u2326 DELETE"],
-    ["\U0001F4F7 Tomar foto", "\U0001F7E2 Auto tras navegar: ON", "\U0001F534 Auto tras navegar: OFF"],
+    ["\U0001F4F7 Tomar foto", "1\ufe0f\u20e3 Una sola vez tras navegar"],
+    ["\U0001F7E2 Auto tras navegar: ON", "\U0001F534 Auto tras navegar: OFF"],
     ["\U0001F4DA Atajos navegar", "\u2753 Ayuda navegar"],
     ["\u274C Cancelar", "\U0001F3E0 Menu principal"],
 ]
@@ -94,6 +95,7 @@ NAVIGATION_MENU_ROWS: list[list[str]] = [
 CAMERA_MENU_ROWS: list[list[str]] = [
     ["\U0001F4F7 Tomar foto"],
     ["\U0001F501 Tomar otra"],
+    ["1\ufe0f\u20e3 Una sola vez tras navegar"],
     ["\U0001F7E2 Auto tras navegar: ON", "\U0001F534 Auto tras navegar: OFF"],
     ["\U0001F4CC Estado camara", "\u2753 Ayuda camara"],
     ["\u274C Cancelar", "\U0001F3E0 Menu principal"],
@@ -193,6 +195,8 @@ BUTTON_ALIASES: dict[str, str] = {
     # Camera help/actions
     "\U0001F4F7 Tomar foto": "Tomar foto",
     "\U0001F501 Tomar otra": "Tomar otra",
+    "1\ufe0f\u20e3 Una sola vez tras navegar": "Una sola vez tras navegar",
+    "Una sola vez": "Una sola vez tras navegar",
     "\U0001F7E2 Auto tras navegar: ON": "Auto tras navegar: ON",
     "\U0001F534 Auto tras navegar: OFF": "Auto tras navegar: OFF",
     "\U0001F4CC Estado camara": "Estado camara",

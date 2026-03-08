@@ -86,6 +86,17 @@ Checklist:
 Nota:
 - La captura es local, no en Raspberry.
 
+## 5.1) 1️⃣ \"Una sola vez tras navegar\" no dispara
+
+Sintomas:
+- Activaste `Una sola vez tras navegar` y no ves foto.
+
+Checklist:
+- Asegura que despues de activarlo ejecutaste una accion valida en `NAVEGAR` (tecla o combo).
+- Evita pensar que se dispara sola sin navegar: requiere una accion posterior.
+- Recuerda que se consume en un intento y luego se desactiva.
+- Si hubo error de camara, vuelve a activarlo y revisa permisos/dispositivo.
+
 ## 6) 🧩 Recipes locales no aparecen o fallan
 
 Sintomas:

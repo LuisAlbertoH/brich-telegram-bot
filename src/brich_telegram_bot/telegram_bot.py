@@ -41,6 +41,7 @@ CHAT_KEY_PENDING_ACTION = "pending_action"
 CHAT_KEY_SETUP = "setup_state"
 CHAT_KEY_MACRO_OPTIONS = "macro_options"
 CHAT_KEY_CAMERA_AUTO = "camera_auto_after_navigation"
+CHAT_KEY_CAMERA_ONE_SHOT = "camera_one_shot_after_navigation"
 
 ACTION_TEXT = "text"
 ACTION_KEY = "key"
@@ -136,7 +137,7 @@ class BrichTelegramBot:
             "- Texto soporta acentos y caracteres especiales.\n"
             "- En Teclas/Combos/Macros usa los botones de ayuda para ejemplos.\n"
             "- Camara captura una foto desde la webcam local y la envia al chat.\n"
-            "- En Camara puedes activar auto-foto despues de navegar.\n"
+            "- En Camara puedes activar auto-foto o modo una sola vez tras navegar.\n"
             "- En Macros usa Ideas macros para crear automatizaciones simples.\n"
             "- NAVEGAR esta enfocado en atajos de pantalla/ventanas.\n"
             "- Puedes probar teclas nuevas con formato seguro (ej: PRINT_SCREEN)."
@@ -451,10 +452,18 @@ class BrichTelegramBot:
                     )
                     return
                 if canonical_text == "Auto tras navegar: OFF":
-                    self._set_camera_auto_enabled(context, False)
+                    self._disable_navigation_camera_captures(context)
                     await self._reply(
                         update,
-                        "Auto-foto tras navegacion desactivada.",
+                        "Capturas tras navegacion desactivadas.",
+                        reply_markup=self._navigation_menu(),
+                    )
+                    return
+                if canonical_text == "Una sola vez tras navegar":
+                    self._set_camera_one_shot_enabled(context, True)
+                    await self._reply(
+                        update,
+                        "Captura configurada para una sola vez en la proxima accion de NAVEGAR.",
                         reply_markup=self._navigation_menu(),
                     )
                     return
@@ -491,7 +500,11 @@ class BrichTelegramBot:
                     ),
                     reply_markup=self._navigation_menu(),
                 )
-                if self._camera_auto_enabled(context):
+                auto_mode = self._camera_auto_enabled(context)
+                one_shot_mode = self._camera_one_shot_enabled(context)
+                if auto_mode or one_shot_mode:
+                    if one_shot_mode:
+                        self._set_camera_one_shot_enabled(context, False)
                     try:
                         captured = await asyncio.to_thread(
                             capture_webcam_photo,
@@ -500,10 +513,21 @@ class BrichTelegramBot:
                             self._config.camera_timeout_sec,
                         )
                         await self._reply_photo(update, captured, reply_markup=self._navigation_menu())
+                        if one_shot_mode:
+                            await self._reply(
+                                update,
+                                "Captura una sola vez completada. Modo una sola vez desactivado.",
+                                reply_markup=self._navigation_menu(),
+                            )
                     except CameraCaptureError as exc:
+                        suffix = (
+                            " El modo una sola vez ya fue desactivado."
+                            if one_shot_mode
+                            else ""
+                        )
                         await self._reply(
                             update,
-                            f"Auto-foto tras navegar fallida: {exc}",
+                            f"Captura tras navegar fallida: {exc}{suffix}",
                             reply_markup=self._navigation_menu(),
                         )
             elif action == ACTION_CAMERA:
@@ -530,10 +554,18 @@ class BrichTelegramBot:
                     )
                     return
                 if canonical_text == "Auto tras navegar: OFF":
-                    self._set_camera_auto_enabled(context, False)
+                    self._disable_navigation_camera_captures(context)
                     await self._reply(
                         update,
-                        "Auto-foto tras navegacion desactivada.",
+                        "Capturas tras navegacion desactivadas.",
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                if canonical_text == "Una sola vez tras navegar":
+                    self._set_camera_one_shot_enabled(context, True)
+                    await self._reply(
+                        update,
+                        "Captura configurada para una sola vez en la proxima accion de NAVEGAR.",
                         reply_markup=self._camera_menu(),
                     )
                     return
@@ -1042,7 +1074,7 @@ class BrichTelegramBot:
         if action == ACTION_NAVIGATE:
             return "Tip: En NAVEGAR usa teclas como UP, PGDOWN o atajos como ALT+TAB y GUI+TAB."
         if action == ACTION_CAMERA:
-            return "Tip: En Camara puedes usar captura unica o auto-foto tras navegar."
+            return "Tip: En Camara puedes usar captura unica, una sola vez tras navegar o auto-foto continua."
         return "Tip: Usa /help para ver opciones."
 
     def _preview_text(self, text: str, max_len: int = 120) -> str:
@@ -1168,7 +1200,7 @@ class BrichTelegramBot:
             "- Puedes enviar teclas directas (UP, DOWN, TAB, HOME, PGUP, PGDOWN).\n"
             "- Tambien atajos (ALT+TAB, ALT+SHIFT+TAB, WIN+TAB, WIN+LEFT, WIN+RIGHT, WIN+P).\n"
             "- Puedes usar WIN+... o GUI+..., el bot normaliza ambos.\n"
-            "- Incluye atajos de camara: Tomar foto y auto-foto ON/OFF sin salir de NAVEGAR.\n"
+            "- Incluye atajos de camara: Tomar foto, una sola vez y auto-foto ON/OFF sin salir de NAVEGAR.\n"
             "- Este modo se mantiene activo para navegar rapido."
         )
 
@@ -1187,6 +1219,7 @@ class BrichTelegramBot:
         return (
             "Modo Camara:\n"
             "- Tomar foto/Tomar otra: captura unica manual.\n"
+            "- Una sola vez tras navegar: captura en la proxima accion de NAVEGAR y se desactiva sola.\n"
             "- Auto tras navegar ON/OFF: habilita captura automatica despues de cada accion en NAVEGAR.\n"
             "- Estado camara: muestra modo actual.\n"
             "- El archivo se envia al chat y luego se elimina del temporal.\n"
@@ -1196,12 +1229,31 @@ class BrichTelegramBot:
     def _camera_auto_enabled(self, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return bool(context.chat_data.get(CHAT_KEY_CAMERA_AUTO, False))
 
+    def _camera_one_shot_enabled(self, context: ContextTypes.DEFAULT_TYPE) -> bool:
+        return bool(context.chat_data.get(CHAT_KEY_CAMERA_ONE_SHOT, False))
+
     def _set_camera_auto_enabled(self, context: ContextTypes.DEFAULT_TYPE, enabled: bool) -> None:
         context.chat_data[CHAT_KEY_CAMERA_AUTO] = enabled
+        if enabled:
+            context.chat_data[CHAT_KEY_CAMERA_ONE_SHOT] = False
+
+    def _set_camera_one_shot_enabled(self, context: ContextTypes.DEFAULT_TYPE, enabled: bool) -> None:
+        context.chat_data[CHAT_KEY_CAMERA_ONE_SHOT] = enabled
+        if enabled:
+            context.chat_data[CHAT_KEY_CAMERA_AUTO] = False
+
+    def _disable_navigation_camera_captures(self, context: ContextTypes.DEFAULT_TYPE) -> None:
+        context.chat_data[CHAT_KEY_CAMERA_AUTO] = False
+        context.chat_data[CHAT_KEY_CAMERA_ONE_SHOT] = False
 
     def _camera_auto_status_text(self, context: ContextTypes.DEFAULT_TYPE) -> str:
-        mode = "ON" if self._camera_auto_enabled(context) else "OFF"
-        return f"Estado auto-foto tras navegar: {mode}"
+        if self._camera_auto_enabled(context):
+            mode = "AUTO (ON)"
+        elif self._camera_one_shot_enabled(context):
+            mode = "UNA SOLA VEZ (pendiente)"
+        else:
+            mode = "OFF"
+        return f"Estado captura tras navegar: {mode}"
 
     def _normalize_navigation_input(self, raw_text: str) -> str:
         normalized = raw_text.strip().upper()

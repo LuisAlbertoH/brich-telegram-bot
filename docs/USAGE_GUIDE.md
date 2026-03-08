@@ -23,11 +23,14 @@ Objetivo:
 
 Pasos:
 1. Presiona `NAVEGAR`.
-2. Activa `Auto tras navegar: ON`.
-3. Usa atajos como `ALT+TAB`, `WIN+TAB`, `WIN+LEFT`.
-4. Verifica que llegue una foto despues de cada accion.
-5. Si solo quieres una captura puntual, usa `Tomar foto`.
-6. Para desactivar, pulsa `Auto tras navegar: OFF`.
+2. Si quieres una sola evidencia, activa `Una sola vez tras navegar`.
+3. Si quieres evidencia continua, activa `Auto tras navegar: ON`.
+4. Usa atajos como `ALT+TAB`, `WIN+TAB`, `WIN+LEFT`.
+5. Verifica la llegada de foto:
+   - `Una sola vez tras navegar`: solo una captura y se desactiva sola.
+   - `Auto tras navegar: ON`: captura despues de cada accion.
+6. Si solo quieres una captura puntual manual, usa `Tomar foto`.
+7. Para desactivar todo, pulsa `Auto tras navegar: OFF`.
 
 ## Caso 3: 🎬 Ejecutar macro remota
 

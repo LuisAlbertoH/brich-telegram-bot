@@ -7,7 +7,8 @@ Bot privado de Telegram para controlar una Raspberry Pi por SSH y ejecutar accio
 - ⚡ Atajos `InlineKeyboardMarkup` para combos frecuentes (incluyendo tecla Windows).
 - 🔤 Soporte correcto de acentos y caracteres especiales (normalizacion Unicode NFC).
 - 📸 Captura de webcam local y envio al chat autorizado.
-- 🔁 Modo auto-foto tras navegar (`Auto tras navegar: ON/OFF`).
+- 1️⃣ Modo `Una sola vez tras navegar` (captura una vez y se apaga solo).
+- 🔁 Modo auto-foto tras navegar (`Auto tras navegar: ON/OFF`, continuo).
 - 🧩 Recipes locales (`LOCAL:<nombre>`) para automatizar flujos simples.
 - 🔒 Bot de un solo usuario (`AUTHORIZED_CHAT_ID`) con validaciones de seguridad.
 - 🛡️ Sanitizacion de inputs + quoting seguro + timeouts SSH + logs estructurados.
@@ -103,6 +104,7 @@ python main.py
 ### 2) 🧭 NAVEGAR + 📸 evidencia automatica
 - Entra a `NAVEGAR`.
 - Usa flechas, TAB, PGUP/PGDOWN, ALT+TAB, WIN+TAB, WIN+LEFT/RIGHT, etc.
+- Activa `Una sola vez tras navegar` si quieres solo la siguiente captura y desactivacion automatica.
 - Activa `Auto tras navegar: ON` para tomar foto despues de cada accion.
 - Usa `Tomar foto` para captura unica manual sin salir del menu.
 
@@ -162,6 +164,8 @@ python scripts/smoke_test.py
   - Valida host/usuario/credencial/timeout y conectividad LAN.
 - ❌ Camara no captura
   - Revisa permisos de webcam y `CAMERA_DEVICE_INDEX`.
+- ❌ No se dispara `Una sola vez tras navegar`
+  - Recuerda que se consume en la siguiente accion valida de `NAVEGAR` y luego se desactiva.
 - ❌ Recipe local no aparece
   - Verifica `LOCAL_RECIPES_PATH`, JSON valido y nombre de recipe.
 

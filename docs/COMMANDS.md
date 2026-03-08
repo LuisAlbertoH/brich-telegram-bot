@@ -109,6 +109,7 @@ python3 <RPI_PROJECT_PATH>/keyboard_ctl.py macro open_terminal_linux
 - Opciones:
   - `Tomar foto` (captura unica)
   - `Tomar otra` (captura unica)
+  - `Una sola vez tras navegar` (captura solo en la proxima accion de NAVEGAR)
   - `Auto tras navegar: ON/OFF`
   - `Estado camara`
   - `Ayuda camara`
@@ -135,7 +136,7 @@ Incluye:
 - Snap/Layout: `WIN+LEFT`, `WIN+RIGHT`, `WIN+UP`, `WIN+DOWN`
 - Pantallas: `WIN+P`
 - Escritorio: `WIN+D`, `WIN+M`
-- Camara rapida: `Tomar foto`, `Auto tras navegar: ON`, `Auto tras navegar: OFF`
+- Camara rapida: `Tomar foto`, `Una sola vez tras navegar`, `Auto tras navegar: ON`, `Auto tras navegar: OFF`
 
 Tips:
 - Usa `Atajos navegar` para ver recomendaciones.

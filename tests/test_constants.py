@@ -19,6 +19,7 @@ def test_navigation_menu_contains_core_shortcuts() -> None:
         "PGUP",
         "PGDOWN",
         "Tomar foto",
+        "Una sola vez tras navegar",
         "Auto tras navegar: ON",
         "Auto tras navegar: OFF",
     ]:
