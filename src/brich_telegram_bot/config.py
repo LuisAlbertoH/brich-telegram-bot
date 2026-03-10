@@ -24,6 +24,8 @@ ENV_KEYS_IN_ORDER = [
     "RPI_PROJECT_PATH",
     "SSH_TIMEOUT_SEC",
     "CAMERA_DEVICE_INDEX",
+    "CAMERA_FRAME_WIDTH",
+    "CAMERA_FRAME_HEIGHT",
     "CAMERA_WARMUP_FRAMES",
     "CAMERA_TIMEOUT_SEC",
     "LOCAL_RECIPES_PATH",
@@ -49,6 +51,8 @@ class AppConfig:
     rpi_project_path: str | None
     ssh_timeout_sec: int
     camera_device_index: int
+    camera_frame_width: int | None
+    camera_frame_height: int | None
     camera_warmup_frames: int
     camera_timeout_sec: int
     local_recipes_path: Path
@@ -97,6 +101,8 @@ class AppConfig:
             f"RPI_PROJECT_PATH={self.rpi_project_path}\n"
             f"SSH_TIMEOUT_SEC={self.ssh_timeout_sec}\n"
             f"CAMERA_DEVICE_INDEX={self.camera_device_index}\n"
+            f"CAMERA_FRAME_WIDTH={self.camera_frame_width}\n"
+            f"CAMERA_FRAME_HEIGHT={self.camera_frame_height}\n"
             f"CAMERA_WARMUP_FRAMES={self.camera_warmup_frames}\n"
             f"CAMERA_TIMEOUT_SEC={self.camera_timeout_sec}\n"
             f"LOCAL_RECIPES_PATH={self.local_recipes_path}\n"
@@ -123,6 +129,20 @@ def _parse_int(raw: str | None, key: str, default: int, minimum: int, maximum: i
         raise ConfigError(f"{key} debe ser entero, recibido: {raw!r}") from exc
     if value < minimum or value > maximum:
         raise ConfigError(f"{key} fuera de rango [{minimum}, {maximum}]: {value}")
+    return value
+
+
+def _parse_optional_int(raw: str | None, key: str, minimum: int, maximum: int) -> int | None:
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ConfigError(f"{key} debe ser entero o vacio, recibido: {raw!r}") from exc
+    if value == 0:
+        return None
+    if value < minimum or value > maximum:
+        raise ConfigError(f"{key} fuera de rango [{minimum}, {maximum}] o 0: {value}")
     return value
 
 
@@ -162,6 +182,18 @@ def load_config(env_file: Path | None = None) -> AppConfig:
 
     ssh_timeout_sec = _parse_int(os.getenv("SSH_TIMEOUT_SEC"), "SSH_TIMEOUT_SEC", 10, 1, 120)
     camera_device_index = _parse_int(os.getenv("CAMERA_DEVICE_INDEX"), "CAMERA_DEVICE_INDEX", 0, 0, 16)
+    camera_frame_width = _parse_optional_int(
+        os.getenv("CAMERA_FRAME_WIDTH"),
+        "CAMERA_FRAME_WIDTH",
+        160,
+        7680,
+    )
+    camera_frame_height = _parse_optional_int(
+        os.getenv("CAMERA_FRAME_HEIGHT"),
+        "CAMERA_FRAME_HEIGHT",
+        120,
+        4320,
+    )
     camera_warmup_frames = _parse_int(
         os.getenv("CAMERA_WARMUP_FRAMES"),
         "CAMERA_WARMUP_FRAMES",
@@ -209,6 +241,8 @@ def load_config(env_file: Path | None = None) -> AppConfig:
         rpi_project_path=rpi_project_path,
         ssh_timeout_sec=ssh_timeout_sec,
         camera_device_index=camera_device_index,
+        camera_frame_width=camera_frame_width,
+        camera_frame_height=camera_frame_height,
         camera_warmup_frames=camera_warmup_frames,
         camera_timeout_sec=camera_timeout_sec,
         local_recipes_path=local_recipes_path,

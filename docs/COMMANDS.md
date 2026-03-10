@@ -109,6 +109,9 @@ python3 <RPI_PROJECT_PATH>/keyboard_ctl.py macro open_terminal_linux
 - Opciones:
   - `Tomar foto` (captura unica)
   - `Tomar otra` (captura unica)
+  - `Res 640x480`, `Res 1280x720`, `Res 1920x1080`
+  - `Resolucion custom (RES WxH)` (ej: `RES 1024x768`)
+  - `Res default` (vuelve a resolucion nativa de webcam)
   - `Una sola vez tras navegar` (captura solo en la proxima accion de NAVEGAR)
   - `Auto tras navegar: ON/OFF`
   - `Estado camara`
@@ -116,10 +119,19 @@ python3 <RPI_PROJECT_PATH>/keyboard_ctl.py macro open_terminal_linux
 - El bot envia la foto al chat y borra el temporal.
 
 ## 📊 Estado
-Consulta remoto:
-- `systemctl is-active brich-keyboard.service`
-- `systemctl is-enabled brich-keyboard.service`
-- `/tmp/brich_keyboard_status.json` (si existe)
+Modo Estado (submenu):
+- `Estado ahora`: muestra
+  - `systemctl is-active brich-keyboard.service`
+  - `systemctl is-enabled brich-keyboard.service`
+  - resumen de `/tmp/brich_keyboard_status.json` (si existe)
+- `Eventos servicio`: timeline legible en orden cronologico (antiguo -> nuevo) desde `journalctl -u brich-keyboard.service`.
+- `Eventos BLE`: timeline BLE en orden cronologico (si el JSON trae historial/eventos).
+- `Reiniciar servicio`: ejecuta `systemctl restart brich-keyboard.service`.
+- `Iniciar servicio`: ejecuta `systemctl start brich-keyboard.service`.
+- `Detener servicio`: ejecuta `systemctl stop brich-keyboard.service`.
+
+Nota:
+- Si tu usuario SSH no tiene permisos directos para `systemctl`, el bot intenta `sudo -n` (sin prompt).
 
 ## ⚙️ Ajustes
 - Muestra configuracion activa sin secretos.

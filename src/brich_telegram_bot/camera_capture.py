@@ -23,6 +23,8 @@ def capture_webcam_photo(
     device_index: int,
     warmup_frames: int,
     timeout_sec: int,
+    frame_width: int | None = None,
+    frame_height: int | None = None,
 ) -> CapturedPhoto:
     try:
         import cv2  # type: ignore
@@ -38,6 +40,10 @@ def capture_webcam_photo(
             f"No se pudo abrir la webcam local (indice {device_index}). "
             "Verifica permisos de camara y que no este siendo usada por otra app."
         )
+    if frame_width is not None and hasattr(cv2, "CAP_PROP_FRAME_WIDTH"):
+        capture.set(cv2.CAP_PROP_FRAME_WIDTH, float(frame_width))
+    if frame_height is not None and hasattr(cv2, "CAP_PROP_FRAME_HEIGHT"):
+        capture.set(cv2.CAP_PROP_FRAME_HEIGHT, float(frame_height))
 
     frame = None
     deadline = time.monotonic() + max(1, timeout_sec)

@@ -23,6 +23,13 @@ LOG_LEVEL_ROWS: list[list[str]] = [
     ["DEBUG", "INFO", "WARNING", "ERROR"],
 ]
 
+STATUS_MENU_ROWS: list[list[str]] = [
+    ["\U0001F4CA Estado ahora", "\U0001F9FE Eventos BLE"],
+    ["\U0001F4DC Eventos servicio"],
+    ["\U0001F504 Reiniciar servicio", "\u25B6\ufe0f Iniciar servicio", "\u23F9\ufe0f Detener servicio"],
+    ["\u274C Cancelar", "\U0001F3E0 Menu principal"],
+]
+
 KEYBOARD_KEYS: list[str] = [
     "UP",
     "DOWN",
@@ -95,6 +102,8 @@ NAVIGATION_MENU_ROWS: list[list[str]] = [
 CAMERA_MENU_ROWS: list[list[str]] = [
     ["\U0001F4F7 Tomar foto"],
     ["\U0001F501 Tomar otra"],
+    ["\U0001F5BC\ufe0f Res 640x480", "\U0001F5BC\ufe0f Res 1280x720", "\U0001F5BC\ufe0f Res 1920x1080"],
+    ["\u270D\ufe0f Resolucion custom (RES WxH)", "\u267B\ufe0f Res default"],
     ["1\ufe0f\u20e3 Una sola vez tras navegar"],
     ["\U0001F7E2 Auto tras navegar: ON", "\U0001F534 Auto tras navegar: OFF"],
     ["\U0001F4CC Estado camara", "\u2753 Ayuda camara"],
@@ -195,12 +204,24 @@ BUTTON_ALIASES: dict[str, str] = {
     # Camera help/actions
     "\U0001F4F7 Tomar foto": "Tomar foto",
     "\U0001F501 Tomar otra": "Tomar otra",
+    "\U0001F5BC\ufe0f Res 640x480": "RES 640x480",
+    "\U0001F5BC\ufe0f Res 1280x720": "RES 1280x720",
+    "\U0001F5BC\ufe0f Res 1920x1080": "RES 1920x1080",
+    "\u270D\ufe0f Resolucion custom (RES WxH)": "Resolucion custom (RES WxH)",
+    "\u267B\ufe0f Res default": "RES DEFAULT",
     "1\ufe0f\u20e3 Una sola vez tras navegar": "Una sola vez tras navegar",
     "Una sola vez": "Una sola vez tras navegar",
     "\U0001F7E2 Auto tras navegar: ON": "Auto tras navegar: ON",
     "\U0001F534 Auto tras navegar: OFF": "Auto tras navegar: OFF",
     "\U0001F4CC Estado camara": "Estado camara",
     "\u2753 Ayuda camara": "Ayuda camara",
+    # Status actions
+    "\U0001F4CA Estado ahora": "Estado ahora",
+    "\U0001F9FE Eventos BLE": "Eventos BLE",
+    "\U0001F4DC Eventos servicio": "Eventos servicio",
+    "\U0001F504 Reiniciar servicio": "Reiniciar servicio",
+    "\u25B6\ufe0f Iniciar servicio": "Iniciar servicio",
+    "\u23F9\ufe0f Detener servicio": "Detener servicio",
     # Navigation help/actions
     "\U0001F4DA Atajos navegar": "Atajos navegar",
     "\u2753 Ayuda navegar": "Ayuda navegar",

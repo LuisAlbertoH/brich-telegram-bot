@@ -70,6 +70,37 @@ Verifica:
 - Ruta correcta en `RPI_PROJECT_PATH`.
 - Permisos de ejecucion para `keyboard_ctl.py`.
 
+## 4.1) 🛠️ No se puede reiniciar/iniciar/detener servicio
+
+Sintomas:
+- Error al usar `Reiniciar servicio`, `Iniciar servicio` o `Detener servicio`.
+
+Checklist:
+- Verifica si tu usuario SSH puede usar `systemctl` para ese servicio.
+- Si requiere sudo, confirma que permite `sudo -n` sin prompt para ese comando.
+- Prueba manual en Raspberry:
+```bash
+systemctl restart brich-keyboard.service
+sudo -n systemctl restart brich-keyboard.service
+```
+- Si `sudo -n` falla, configura regla sudoers para el usuario del bot.
+
+## 4.2) 🧾 Eventos de servicio vacios o inaccesibles
+
+Sintomas:
+- `Eventos servicio` no muestra logs o devuelve error.
+
+Checklist:
+- Verifica que `journalctl` este disponible en Raspberry.
+- Prueba lectura manual:
+```bash
+journalctl -u brich-keyboard.service --no-pager -o short-iso -n 40
+```
+- Si requiere permisos, prueba con sudo:
+```bash
+sudo -n journalctl -u brich-keyboard.service --no-pager -o short-iso -n 40
+```
+
 ## 5) 📸 Camara no toma foto
 
 Sintomas:
@@ -80,6 +111,8 @@ Checklist:
 - Cierra apps que usen webcam (Zoom, Meet, OBS, Teams).
 - Da permisos de camara a terminal/Python.
 - Prueba cambiar `CAMERA_DEVICE_INDEX` (0, 1, 2...).
+- Ajusta resolucion objetivo (`RES 1280x720`) si la webcam falla con resoluciones altas.
+- Usa `Res default` para volver al modo nativo del dispositivo.
 - Ajusta `CAMERA_WARMUP_FRAMES` (ej. 8-15).
 - Aumenta `CAMERA_TIMEOUT_SEC` (ej. 8-12).
 

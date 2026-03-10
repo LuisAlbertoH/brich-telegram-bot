@@ -7,9 +7,12 @@ Bot privado de Telegram para controlar una Raspberry Pi por SSH y ejecutar accio
 - ⚡ Atajos `InlineKeyboardMarkup` para combos frecuentes (incluyendo tecla Windows).
 - 🔤 Soporte correcto de acentos y caracteres especiales (normalizacion Unicode NFC).
 - 📸 Captura de webcam local y envio al chat autorizado.
+- 🖼️ Resolucion de camara configurable (presets, `RES WxH`, default del dispositivo).
 - 1️⃣ Modo `Una sola vez tras navegar` (captura una vez y se apaga solo).
 - 🔁 Modo auto-foto tras navegar (`Auto tras navegar: ON/OFF`, continuo).
 - 🧩 Recipes locales (`LOCAL:<nombre>`) para automatizar flujos simples.
+- 🛠️ Control remoto del servicio (`restart/start/stop`) desde el menu Estado.
+- 🧾 Vista legible de eventos de servicio y BLE en orden cronologico.
 - 🔒 Bot de un solo usuario (`AUTHORIZED_CHAT_ID`) con validaciones de seguridad.
 - 🛡️ Sanitizacion de inputs + quoting seguro + timeouts SSH + logs estructurados.
 
@@ -59,7 +62,7 @@ Variables clave:
 - `RPI_SSH_KEY_PATH`: obligatorio si `RPI_AUTH_MODE=key`.
 - `RPI_PROJECT_PATH`: ruta remota donde existe `keyboard_ctl.py`.
 - `SSH_TIMEOUT_SEC`: timeout SSH por comando.
-- `CAMERA_DEVICE_INDEX`, `CAMERA_WARMUP_FRAMES`, `CAMERA_TIMEOUT_SEC`: control de webcam.
+- `CAMERA_DEVICE_INDEX`, `CAMERA_FRAME_WIDTH`, `CAMERA_FRAME_HEIGHT`, `CAMERA_WARMUP_FRAMES`, `CAMERA_TIMEOUT_SEC`: control de webcam.
 - `LOCAL_RECIPES_PATH`: JSON local de recipes.
 - `LOG_LEVEL`: `DEBUG`, `INFO`, `WARNING`, `ERROR`.
 
@@ -107,6 +110,7 @@ python main.py
 - Activa `Una sola vez tras navegar` si quieres solo la siguiente captura y desactivacion automatica.
 - Activa `Auto tras navegar: ON` para tomar foto despues de cada accion.
 - Usa `Tomar foto` para captura unica manual sin salir del menu.
+- Define resolucion desde `Camara` con presets o `RES WxH` (ej: `RES 1280x720`).
 
 ### 3) 🎬 Macros y recipes
 - Entra a `Macros`.
@@ -116,7 +120,11 @@ python main.py
 - Ejecuta recipe local con `LOCAL:nombre_recipe`.
 
 ### 4) 📊 Estado y ⚙️ Ajustes
-- `Estado`: revisa servicio `brich-keyboard.service` y status BLE.
+- `Estado`: submenu para:
+  - `Estado ahora` (active/enabled + resumen BLE)
+  - `Eventos servicio` (timeline cronologico desde `journalctl`)
+  - `Eventos BLE` (timeline cronologico si existe en status BLE)
+  - `Reiniciar/Iniciar/Detener servicio`
 - `Ajustes`: muestra configuracion activa (sin secretos).
 
 ## 🧩 Recipes locales (automatizacion)
@@ -162,6 +170,8 @@ python scripts/smoke_test.py
   - Revisa `AUTHORIZED_CHAT_ID`.
 - ❌ Falla SSH
   - Valida host/usuario/credencial/timeout y conectividad LAN.
+- ❌ No se puede controlar el servicio desde Estado
+  - Revisa permisos `systemctl`/`sudo -n` del usuario SSH en Raspberry.
 - ❌ Camara no captura
   - Revisa permisos de webcam y `CAMERA_DEVICE_INDEX`.
 - ❌ No se dispara `Una sola vez tras navegar`

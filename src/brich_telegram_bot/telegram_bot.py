@@ -5,6 +5,7 @@ import json
 import logging
 import random
 import re
+from datetime import datetime
 from typing import Any
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, Update
@@ -29,6 +30,7 @@ from .constants import (
     NAVIGATION_MENU_ROWS,
     SETUP_CONFIRM_ROWS,
     SETUP_RESET_CONFIRM_ROWS,
+    STATUS_MENU_ROWS,
     TEXT_SHORTCUT_ROWS,
 )
 from .local_recipes import LocalRecipeError, execute_local_recipe, list_local_recipe_names
@@ -42,11 +44,14 @@ CHAT_KEY_SETUP = "setup_state"
 CHAT_KEY_MACRO_OPTIONS = "macro_options"
 CHAT_KEY_CAMERA_AUTO = "camera_auto_after_navigation"
 CHAT_KEY_CAMERA_ONE_SHOT = "camera_one_shot_after_navigation"
+CHAT_KEY_CAMERA_FRAME_WIDTH = "camera_frame_width"
+CHAT_KEY_CAMERA_FRAME_HEIGHT = "camera_frame_height"
 
 ACTION_TEXT = "text"
 ACTION_KEY = "key"
 ACTION_COMBO = "combo"
 ACTION_MACRO = "macro"
+ACTION_STATUS = "status"
 ACTION_NAVIGATE = "navigate"
 ACTION_CAMERA = "camera"
 
@@ -137,7 +142,9 @@ class BrichTelegramBot:
             "- Texto soporta acentos y caracteres especiales.\n"
             "- En Teclas/Combos/Macros usa los botones de ayuda para ejemplos.\n"
             "- Camara captura una foto desde la webcam local y la envia al chat.\n"
+            "- Puedes ajustar resolucion de Camara con presets o RES WxH.\n"
             "- En Camara puedes activar auto-foto o modo una sola vez tras navegar.\n"
+            "- En Estado puedes reiniciar/iniciar/detener el servicio y ver eventos cronologicos.\n"
             "- En Macros usa Ideas macros para crear automatizaciones simples.\n"
             "- NAVEGAR esta enfocado en atajos de pantalla/ventanas.\n"
             "- Puedes probar teclas nuevas con formato seguro (ej: PRINT_SCREEN)."
@@ -235,7 +242,13 @@ class BrichTelegramBot:
             )
             return
         if canonical_text == "Estado":
-            await self._send_status(update)
+            context.chat_data[CHAT_KEY_PENDING_ACTION] = ACTION_STATUS
+            await self._reply(
+                update,
+                self._status_help_text(),
+                reply_markup=self._status_menu(),
+            )
+            await self._send_status(update, reply_markup=self._status_menu())
             return
         if canonical_text == "Ajustes":
             await self._send_settings(update)
@@ -311,7 +324,14 @@ class BrichTelegramBot:
             await self.handle_cancel(update, context)
             return
 
-        remote_actions = {ACTION_TEXT, ACTION_KEY, ACTION_COMBO, ACTION_MACRO, ACTION_NAVIGATE}
+        remote_actions = {
+            ACTION_TEXT,
+            ACTION_KEY,
+            ACTION_COMBO,
+            ACTION_MACRO,
+            ACTION_STATUS,
+            ACTION_NAVIGATE,
+        }
         if action in remote_actions and not self._config.remote_ready:
             context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
             await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
@@ -428,6 +448,31 @@ class BrichTelegramBot:
                     reply_markup=self._main_menu(),
                 )
                 context.chat_data.pop(CHAT_KEY_PENDING_ACTION, None)
+            elif action == ACTION_STATUS:
+                if canonical_text == "Estado ahora":
+                    await self._send_status(update, reply_markup=self._status_menu())
+                    return
+                if canonical_text == "Eventos servicio":
+                    await self._send_service_events(update, reply_markup=self._status_menu())
+                    return
+                if canonical_text == "Eventos BLE":
+                    await self._send_ble_events(update, reply_markup=self._status_menu())
+                    return
+                if canonical_text == "Reiniciar servicio":
+                    await self._control_service(update, "restart", reply_markup=self._status_menu())
+                    return
+                if canonical_text == "Iniciar servicio":
+                    await self._control_service(update, "start", reply_markup=self._status_menu())
+                    return
+                if canonical_text == "Detener servicio":
+                    await self._control_service(update, "stop", reply_markup=self._status_menu())
+                    return
+                await self._reply(
+                    update,
+                    "Usa los botones de Estado para ver eventos o controlar el servicio.",
+                    reply_markup=self._status_menu(),
+                )
+                return
             elif action == ACTION_NAVIGATE:
                 if canonical_text == "Ayuda navegar":
                     await self._reply(
@@ -468,12 +513,15 @@ class BrichTelegramBot:
                     )
                     return
                 if canonical_text in {"Tomar foto", "Tomar otra"}:
+                    width, height = self._camera_resolution(context)
                     try:
                         captured = await asyncio.to_thread(
                             capture_webcam_photo,
                             self._config.camera_device_index,
                             self._config.camera_warmup_frames,
                             self._config.camera_timeout_sec,
+                            width,
+                            height,
                         )
                         await self._reply_photo(update, captured, reply_markup=self._navigation_menu())
                     except CameraCaptureError as exc:
@@ -505,12 +553,15 @@ class BrichTelegramBot:
                 if auto_mode or one_shot_mode:
                     if one_shot_mode:
                         self._set_camera_one_shot_enabled(context, False)
+                    width, height = self._camera_resolution(context)
                     try:
                         captured = await asyncio.to_thread(
                             capture_webcam_photo,
                             self._config.camera_device_index,
                             self._config.camera_warmup_frames,
                             self._config.camera_timeout_sec,
+                            width,
+                            height,
                         )
                         await self._reply_photo(update, captured, reply_markup=self._navigation_menu())
                         if one_shot_mode:
@@ -545,6 +596,42 @@ class BrichTelegramBot:
                         reply_markup=self._camera_menu(),
                     )
                     return
+                if canonical_text == "Resolucion custom (RES WxH)":
+                    await self._reply(
+                        update,
+                        "Escribe la resolucion con formato RES WxH.\n"
+                        "Ejemplos: RES 1024x768, RES 1600x900",
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                if canonical_text == "RES DEFAULT":
+                    self._set_camera_resolution(context, None, None)
+                    await self._reply(
+                        update,
+                        "Resolucion de camara restablecida a default del dispositivo.",
+                        reply_markup=self._camera_menu(),
+                    )
+                    await self._reply(
+                        update,
+                        self._camera_auto_status_text(context),
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
+                resolution = self._parse_resolution_command(canonical_text)
+                if resolution is not None:
+                    width, height = resolution
+                    self._set_camera_resolution(context, width, height)
+                    await self._reply(
+                        update,
+                        f"Resolucion de camara configurada a {width}x{height}.",
+                        reply_markup=self._camera_menu(),
+                    )
+                    await self._reply(
+                        update,
+                        self._camera_auto_status_text(context),
+                        reply_markup=self._camera_menu(),
+                    )
+                    return
                 if canonical_text == "Auto tras navegar: ON":
                     self._set_camera_auto_enabled(context, True)
                     await self._reply(
@@ -572,16 +659,19 @@ class BrichTelegramBot:
                 if canonical_text not in {"Tomar foto", "Tomar otra"}:
                     await self._reply(
                         update,
-                        "Usa los botones de camara para capturar una foto.",
+                        "Usa los botones de camara o RES WxH para ajustar resolucion.",
                         reply_markup=self._camera_menu(),
                     )
                     return
+                width, height = self._camera_resolution(context)
                 try:
                     captured = await asyncio.to_thread(
                         capture_webcam_photo,
                         self._config.camera_device_index,
                         self._config.camera_warmup_frames,
                         self._config.camera_timeout_sec,
+                        width,
+                        height,
                     )
                     await self._reply_photo(update, captured, reply_markup=self._camera_menu())
                 except CameraCaptureError as exc:
@@ -640,7 +730,7 @@ class BrichTelegramBot:
             reply_markup=self._macro_menu_hint(),
         )
 
-    async def _send_status(self, update: Update) -> None:
+    async def _send_status(self, update: Update, reply_markup: Any | None = None) -> None:
         if not self._config.remote_ready:
             await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
             return
@@ -652,14 +742,187 @@ class BrichTelegramBot:
 
         service = snapshot.get("service", {})
         ble = snapshot.get("ble", {})
-        ble_json = json.dumps(ble, ensure_ascii=False, indent=2) if ble else "{}"
+        ble_summary = self._format_ble_summary(ble if isinstance(ble, dict) else {})
         message = (
             "Estado remoto:\n"
             f"- Servicio active: {service.get('active', 'unknown')}\n"
             f"- Servicio enabled: {service.get('enabled', 'unknown')}\n"
-            f"- BLE status file: {ble_json}"
+            f"- BLE: {ble_summary}\n"
+            "- Usa Eventos servicio y Eventos BLE para ver timeline cronologico."
         )
-        await self._reply(update, message, reply_markup=self._main_menu())
+        await self._reply(update, message, reply_markup=reply_markup or self._main_menu())
+
+    async def _control_service(
+        self,
+        update: Update,
+        action: str,
+        reply_markup: Any | None = None,
+    ) -> None:
+        if not self._config.remote_ready:
+            await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
+            return
+        try:
+            status = await asyncio.to_thread(self._controller().control_service, action)
+        except RemoteControlError as exc:
+            await self._reply(update, f"No se pudo {action} servicio: {exc}", reply_markup=reply_markup or self._status_menu())
+            return
+
+        await self._reply(
+            update,
+            self._dynamic_success_message(
+                ACTION_STATUS,
+                "Servicio actualizado:\n"
+                f"- active: {status.get('active', 'unknown')}\n"
+                f"- enabled: {status.get('enabled', 'unknown')}",
+            ),
+            reply_markup=reply_markup or self._status_menu(),
+        )
+
+    async def _send_service_events(self, update: Update, reply_markup: Any | None = None) -> None:
+        if not self._config.remote_ready:
+            await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
+            return
+        try:
+            events = await asyncio.to_thread(self._controller().service_events, 40)
+        except RemoteControlError as exc:
+            await self._reply(update, f"No se pudieron leer eventos de servicio: {exc}", reply_markup=reply_markup or self._status_menu())
+            return
+
+        if not events:
+            await self._reply(
+                update,
+                "No hay eventos recientes del servicio.",
+                reply_markup=reply_markup or self._status_menu(),
+            )
+            return
+
+        render_events = events[-20:]
+        lines = [
+            "Eventos de servicio (cronologico, antiguo -> nuevo):",
+            f"- Mostrando {len(render_events)} de {len(events)} eventos recientes.",
+        ]
+        for line in render_events:
+            lines.append(f"- {self._truncate_chat_line(line)}")
+        await self._reply(update, "\n".join(lines), reply_markup=reply_markup or self._status_menu())
+
+    async def _send_ble_events(self, update: Update, reply_markup: Any | None = None) -> None:
+        if not self._config.remote_ready:
+            await self._reply(update, "Configuracion remota incompleta. Usa /setup.")
+            return
+        try:
+            snapshot = await asyncio.to_thread(self._controller().status_snapshot)
+        except RemoteControlError as exc:
+            await self._reply(update, f"No se pudo consultar estado BLE: {exc}", reply_markup=reply_markup or self._status_menu())
+            return
+
+        ble = snapshot.get("ble", {})
+        if not isinstance(ble, dict) or not ble:
+            await self._reply(
+                update,
+                "No hay archivo BLE o no contiene datos.",
+                reply_markup=reply_markup or self._status_menu(),
+            )
+            return
+
+        events = self._extract_ble_events_chronological(ble)
+        if events:
+            render_events = events[-20:]
+            lines = [
+                "Eventos BLE (cronologico, antiguo -> nuevo):",
+                f"- Mostrando {len(render_events)} de {len(events)} eventos detectados.",
+                *[f"- {self._truncate_chat_line(entry)}" for entry in render_events],
+            ]
+            await self._reply(update, "\n".join(lines), reply_markup=reply_markup or self._status_menu())
+            return
+
+        fallback_json = json.dumps(ble, ensure_ascii=False, indent=2)
+        await self._reply(
+            update,
+            "No se detecto un timeline explicito en BLE. Estado actual:\n"
+            f"{fallback_json}",
+            reply_markup=reply_markup or self._status_menu(),
+        )
+
+    def _format_ble_summary(self, ble_payload: dict[str, Any]) -> str:
+        if not ble_payload:
+            return "{}"
+        status = ble_payload.get("status")
+        connected = ble_payload.get("connected")
+        paired = ble_payload.get("paired")
+        parts: list[str] = []
+        if status is not None:
+            parts.append(f"status={status}")
+        if connected is not None:
+            parts.append(f"connected={connected}")
+        if paired is not None:
+            parts.append(f"paired={paired}")
+        if not parts:
+            keys = ", ".join(sorted(ble_payload.keys())[:4])
+            return f"keys={keys}"
+        return ", ".join(parts)
+
+    def _extract_ble_events_chronological(self, ble_payload: dict[str, Any]) -> list[str]:
+        sources: list[tuple[object, str]] = []
+        for key in ("events", "history", "timeline", "log", "states"):
+            if key in ble_payload:
+                sources.append((ble_payload.get(key), key))
+
+        parsed: list[tuple[float, str]] = []
+        fallback_order = 0.0
+        for raw_source, source_name in sources:
+            if not isinstance(raw_source, list):
+                continue
+            for item in raw_source:
+                fallback_order += 1.0
+                if isinstance(item, str):
+                    parsed.append((fallback_order, f"[{source_name}] {item}"))
+                    continue
+                if not isinstance(item, dict):
+                    parsed.append((fallback_order, f"[{source_name}] {item}"))
+                    continue
+                timestamp = self._extract_event_timestamp(item)
+                message = self._extract_event_message(item)
+                sort_key = timestamp if timestamp is not None else fallback_order
+                label = message if message else json.dumps(item, ensure_ascii=False)
+                parsed.append((sort_key, label))
+
+        parsed.sort(key=lambda pair: pair[0])
+        return [message for _, message in parsed]
+
+    def _extract_event_timestamp(self, payload: dict[str, Any]) -> float | None:
+        for key in ("timestamp", "ts", "time", "at", "date", "datetime"):
+            value = payload.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+            if isinstance(value, str):
+                normalized = value.strip()
+                if not normalized:
+                    continue
+                try:
+                    return float(normalized)
+                except ValueError:
+                    pass
+                try:
+                    iso_text = normalized.replace("Z", "+00:00")
+                    return datetime.fromisoformat(iso_text).timestamp()
+                except ValueError:
+                    continue
+        return None
+
+    def _extract_event_message(self, payload: dict[str, Any]) -> str:
+        for key in ("event", "message", "state", "status", "action", "name"):
+            value = payload.get(key)
+            if value is not None and str(value).strip():
+                base = str(value).strip()
+                ts = payload.get("timestamp") or payload.get("ts") or payload.get("time")
+                return f"{ts}: {base}" if ts else base
+        ts = payload.get("timestamp") or payload.get("ts") or payload.get("time")
+        return f"{ts}: {json.dumps(payload, ensure_ascii=False)}" if ts else ""
+
+    def _truncate_chat_line(self, text: str, max_len: int = 220) -> str:
+        if len(text) <= max_len:
+            return text
+        return f"{text[: max_len - 3]}..."
 
     async def _send_settings(self, update: Update) -> None:
         summary = self._config.redacted_summary()
@@ -957,6 +1220,8 @@ class BrichTelegramBot:
             "RPI_PROJECT_PATH": payload.get("RPI_PROJECT_PATH", ""),
             "SSH_TIMEOUT_SEC": payload.get("SSH_TIMEOUT_SEC", "10"),
             "CAMERA_DEVICE_INDEX": str(self._config.camera_device_index),
+            "CAMERA_FRAME_WIDTH": str(self._config.camera_frame_width or ""),
+            "CAMERA_FRAME_HEIGHT": str(self._config.camera_frame_height or ""),
             "CAMERA_WARMUP_FRAMES": str(self._config.camera_warmup_frames),
             "CAMERA_TIMEOUT_SEC": str(self._config.camera_timeout_sec),
             "LOCAL_RECIPES_PATH": str(self._config.local_recipes_path),
@@ -983,6 +1248,8 @@ class BrichTelegramBot:
             f"RPI_PROJECT_PATH={payload.get('RPI_PROJECT_PATH')}\n"
             f"SSH_TIMEOUT_SEC={payload.get('SSH_TIMEOUT_SEC')}\n"
             f"CAMERA_DEVICE_INDEX={self._config.camera_device_index}\n"
+            f"CAMERA_FRAME_WIDTH={self._config.camera_frame_width}\n"
+            f"CAMERA_FRAME_HEIGHT={self._config.camera_frame_height}\n"
             f"CAMERA_WARMUP_FRAMES={self._config.camera_warmup_frames}\n"
             f"CAMERA_TIMEOUT_SEC={self._config.camera_timeout_sec}\n"
             f"LOCAL_RECIPES_PATH={self._config.local_recipes_path}\n"
@@ -1048,6 +1315,11 @@ class BrichTelegramBot:
                 "Listo, macro disparada.",
                 "Accion de macro completada.",
             ],
+            ACTION_STATUS: [
+                "Operacion de servicio completada.",
+                "Accion de estado aplicada correctamente.",
+                "Servicio remoto actualizado.",
+            ],
             ACTION_NAVIGATE: [
                 "Movimiento aplicado.",
                 "Atajo de navegacion ejecutado.",
@@ -1071,10 +1343,12 @@ class BrichTelegramBot:
             return "Tip: Formato valido MOD+KEY, por ejemplo CTRL+ALT+T o GUI+D."
         if action == ACTION_MACRO:
             return "Tip: Usa Listar macros, Ideas macros, Plantilla recipe y Ayuda macros para automatizar."
+        if action == ACTION_STATUS:
+            return "Tip: En Estado usa botones para eventos y control del servicio."
         if action == ACTION_NAVIGATE:
             return "Tip: En NAVEGAR usa teclas como UP, PGDOWN o atajos como ALT+TAB y GUI+TAB."
         if action == ACTION_CAMERA:
-            return "Tip: En Camara puedes usar captura unica, una sola vez tras navegar o auto-foto continua."
+            return "Tip: En Camara usa captura unica, auto, una sola vez o RES WxH para resolucion."
         return "Tip: Usa /help para ver opciones."
 
     def _preview_text(self, text: str, max_len: int = 120) -> str:
@@ -1095,6 +1369,8 @@ class BrichTelegramBot:
             return self._combo_menu()
         if action == ACTION_MACRO:
             return self._macro_menu_hint()
+        if action == ACTION_STATUS:
+            return self._status_menu()
         if action == ACTION_NAVIGATE:
             return self._navigation_menu()
         if action == ACTION_CAMERA:
@@ -1201,6 +1477,7 @@ class BrichTelegramBot:
             "- Tambien atajos (ALT+TAB, ALT+SHIFT+TAB, WIN+TAB, WIN+LEFT, WIN+RIGHT, WIN+P).\n"
             "- Puedes usar WIN+... o GUI+..., el bot normaliza ambos.\n"
             "- Incluye atajos de camara: Tomar foto, una sola vez y auto-foto ON/OFF sin salir de NAVEGAR.\n"
+            "- La resolucion de foto se configura en menu Camara (presets o RES WxH).\n"
             "- Este modo se mantiene activo para navegar rapido."
         )
 
@@ -1219,11 +1496,23 @@ class BrichTelegramBot:
         return (
             "Modo Camara:\n"
             "- Tomar foto/Tomar otra: captura unica manual.\n"
+            "- Resolucion presets: 640x480, 1280x720, 1920x1080.\n"
+            "- Resolucion custom: escribe RES WxH (ej: RES 1024x768).\n"
+            "- Res default: vuelve al modo de resolucion nativa de la webcam.\n"
             "- Una sola vez tras navegar: captura en la proxima accion de NAVEGAR y se desactiva sola.\n"
             "- Auto tras navegar ON/OFF: habilita captura automatica despues de cada accion en NAVEGAR.\n"
             "- Estado camara: muestra modo actual.\n"
             "- El archivo se envia al chat y luego se elimina del temporal.\n"
             "- Si falla, revisa permisos de camara o si otra app la esta usando."
+        )
+
+    def _status_help_text(self) -> str:
+        return (
+            "Modo Estado:\n"
+            "- Estado ahora: muestra active/enabled del servicio y resumen BLE.\n"
+            "- Eventos servicio: muestra logs de journalctl en orden cronologico.\n"
+            "- Eventos BLE: intenta mostrar timeline BLE en orden cronologico.\n"
+            "- Reiniciar/Iniciar/Detener servicio: control remoto de brich-keyboard.service."
         )
 
     def _camera_auto_enabled(self, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -1246,6 +1535,40 @@ class BrichTelegramBot:
         context.chat_data[CHAT_KEY_CAMERA_AUTO] = False
         context.chat_data[CHAT_KEY_CAMERA_ONE_SHOT] = False
 
+    def _camera_resolution(self, context: ContextTypes.DEFAULT_TYPE) -> tuple[int | None, int | None]:
+        width = context.chat_data.get(CHAT_KEY_CAMERA_FRAME_WIDTH, self._config.camera_frame_width)
+        height = context.chat_data.get(CHAT_KEY_CAMERA_FRAME_HEIGHT, self._config.camera_frame_height)
+        if not isinstance(width, int):
+            width = self._config.camera_frame_width
+        if not isinstance(height, int):
+            height = self._config.camera_frame_height
+        return width, height
+
+    def _set_camera_resolution(
+        self,
+        context: ContextTypes.DEFAULT_TYPE,
+        width: int | None,
+        height: int | None,
+    ) -> None:
+        if width is None:
+            context.chat_data.pop(CHAT_KEY_CAMERA_FRAME_WIDTH, None)
+        else:
+            context.chat_data[CHAT_KEY_CAMERA_FRAME_WIDTH] = width
+        if height is None:
+            context.chat_data.pop(CHAT_KEY_CAMERA_FRAME_HEIGHT, None)
+        else:
+            context.chat_data[CHAT_KEY_CAMERA_FRAME_HEIGHT] = height
+
+    def _parse_resolution_command(self, text: str) -> tuple[int, int] | None:
+        match = re.fullmatch(r"(?i)RES\s+(\d{2,5})x(\d{2,5})", text.strip())
+        if not match:
+            return None
+        width = int(match.group(1))
+        height = int(match.group(2))
+        if width < 160 or width > 7680 or height < 120 or height > 4320:
+            raise ValueError("Resolucion fuera de rango. Usa ancho 160..7680 y alto 120..4320.")
+        return width, height
+
     def _camera_auto_status_text(self, context: ContextTypes.DEFAULT_TYPE) -> str:
         if self._camera_auto_enabled(context):
             mode = "AUTO (ON)"
@@ -1253,7 +1576,17 @@ class BrichTelegramBot:
             mode = "UNA SOLA VEZ (pendiente)"
         else:
             mode = "OFF"
-        return f"Estado captura tras navegar: {mode}"
+        width, height = self._camera_resolution(context)
+        if isinstance(width, int) or isinstance(height, int):
+            width_text = str(width) if isinstance(width, int) else "AUTO"
+            height_text = str(height) if isinstance(height, int) else "AUTO"
+            resolution = f"{width_text}x{height_text}"
+        else:
+            resolution = "AUTO (webcam default)"
+        return (
+            f"Estado captura tras navegar: {mode}\n"
+            f"Resolucion objetivo: {resolution}"
+        )
 
     def _normalize_navigation_input(self, raw_text: str) -> str:
         normalized = raw_text.strip().upper()
@@ -1302,6 +1635,9 @@ class BrichTelegramBot:
 
     def _camera_menu(self) -> ReplyKeyboardMarkup:
         return ReplyKeyboardMarkup(CAMERA_MENU_ROWS, resize_keyboard=True)
+
+    def _status_menu(self) -> ReplyKeyboardMarkup:
+        return ReplyKeyboardMarkup(STATUS_MENU_ROWS, resize_keyboard=True)
 
     def _key_suggestions(self) -> list[str]:
         return list(KEYBOARD_KEYS)

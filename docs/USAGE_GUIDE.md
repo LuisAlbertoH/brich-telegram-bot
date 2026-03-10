@@ -23,14 +23,15 @@ Objetivo:
 
 Pasos:
 1. Presiona `NAVEGAR`.
-2. Si quieres una sola evidencia, activa `Una sola vez tras navegar`.
-3. Si quieres evidencia continua, activa `Auto tras navegar: ON`.
-4. Usa atajos como `ALT+TAB`, `WIN+TAB`, `WIN+LEFT`.
-5. Verifica la llegada de foto:
+2. (Opcional) Ve a `Camara` y define resolucion con preset o `RES WxH`.
+3. Si quieres una sola evidencia, activa `Una sola vez tras navegar`.
+4. Si quieres evidencia continua, activa `Auto tras navegar: ON`.
+5. Usa atajos como `ALT+TAB`, `WIN+TAB`, `WIN+LEFT`.
+6. Verifica la llegada de foto:
    - `Una sola vez tras navegar`: solo una captura y se desactiva sola.
    - `Auto tras navegar: ON`: captura despues de cada accion.
-6. Si solo quieres una captura puntual manual, usa `Tomar foto`.
-7. Para desactivar todo, pulsa `Auto tras navegar: OFF`.
+7. Si solo quieres una captura puntual manual, usa `Tomar foto`.
+8. Para desactivar todo, pulsa `Auto tras navegar: OFF`.
 
 ## Caso 3: 🎬 Ejecutar macro remota
 
@@ -73,9 +74,24 @@ Objetivo:
 
 Pasos:
 1. Presiona `Estado`.
-2. Revisa:
+2. Pulsa `Estado ahora` y revisa:
    - `active` / `enabled` de `brich-keyboard.service`
-   - contenido de `/tmp/brich_keyboard_status.json`
+   - resumen BLE
+3. Pulsa `Eventos servicio` para ver timeline cronologico legible.
+4. Pulsa `Eventos BLE` para ver timeline cronologico BLE (si existe historial).
+
+## Caso 5.1: 🛠️ Controlar servicio remoto
+
+Objetivo:
+- Operar `brich-keyboard.service` sin abrir shell manual.
+
+Pasos:
+1. Presiona `Estado`.
+2. Elige accion:
+   - `Reiniciar servicio`
+   - `Iniciar servicio`
+   - `Detener servicio`
+3. Revisa respuesta del bot con estado `active/enabled` actualizado.
 
 Si algo falla, revisa [`docs/TROUBLESHOOTING.md`](./TROUBLESHOOTING.md).
 

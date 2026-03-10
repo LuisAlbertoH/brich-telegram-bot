@@ -128,6 +128,50 @@ class RaspberrySSHClient:
             "enabled": enabled.stdout or enabled.stderr or f"exit={enabled.exit_status}",
         }
 
+    def control_service(self, action: str) -> None:
+        safe_action = action.strip().lower()
+        if safe_action not in {"restart", "start", "stop"}:
+            raise SSHExecutionError(f"Accion de servicio invalida: {action}")
+
+        args = ["systemctl", safe_action, SERVICE_NAME]
+        result = self.run_argv(args, allow_nonzero=True)
+        if result.exit_status == 0:
+            return
+
+        sudo_result = self.run_argv(["sudo", "-n", *args], allow_nonzero=True)
+        if sudo_result.exit_status != 0:
+            detail = sudo_result.stderr or sudo_result.stdout or result.stderr or result.stdout
+            raise SSHExecutionError(
+                f"No se pudo ejecutar '{safe_action}' en {SERVICE_NAME}: {detail or 'sin detalle'}"
+            )
+
+    def get_service_events(self, limit: int = 40) -> list[str]:
+        safe_limit = max(1, min(limit, 200))
+        args = [
+            "journalctl",
+            "-u",
+            SERVICE_NAME,
+            "--no-pager",
+            "--output",
+            "short-iso",
+            "-n",
+            str(safe_limit),
+        ]
+        result = self.run_argv(args, allow_nonzero=True)
+        if result.exit_status != 0:
+            sudo_result = self.run_argv(["sudo", "-n", *args], allow_nonzero=True)
+            if sudo_result.exit_status != 0:
+                detail = sudo_result.stderr or sudo_result.stdout or result.stderr or result.stdout
+                raise SSHExecutionError(
+                    f"No se pudieron leer eventos de servicio: {detail or 'sin detalle'}"
+                )
+            text = sudo_result.stdout
+        else:
+            text = result.stdout
+
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return lines
+
     def get_ble_status(self) -> dict[str, Any]:
         cmd = f"if [ -f {BLE_STATUS_FILE} ]; then cat {BLE_STATUS_FILE}; else echo '{{}}'; fi"
         result = self.run_raw(cmd, allow_nonzero=True)
@@ -140,4 +184,3 @@ class RaspberrySSHClient:
         except json.JSONDecodeError:
             return {"raw": result.stdout}
         return {"raw": result.stdout}
-

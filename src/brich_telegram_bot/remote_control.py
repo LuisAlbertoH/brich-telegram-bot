@@ -73,6 +73,24 @@ class RemoteKeyboardController:
             "ble": ble_status,
         }
 
+    def control_service(self, action: str) -> dict[str, str]:
+        safe_action = action.strip().lower()
+        if safe_action not in {"restart", "start", "stop"}:
+            raise RemoteControlError(f"Accion de servicio invalida: {action}")
+        try:
+            with RaspberrySSHClient(self._config) as ssh_client:
+                ssh_client.control_service(safe_action)
+                return ssh_client.get_service_status()
+        except SSHExecutionError as exc:
+            raise RemoteControlError(str(exc)) from exc
+
+    def service_events(self, limit: int = 40) -> list[str]:
+        try:
+            with RaspberrySSHClient(self._config) as ssh_client:
+                return ssh_client.get_service_events(limit=limit)
+        except SSHExecutionError as exc:
+            raise RemoteControlError(str(exc)) from exc
+
     def _run_checked(self, command: str) -> None:
         try:
             with RaspberrySSHClient(self._config) as ssh_client:
@@ -97,4 +115,3 @@ class RemoteKeyboardController:
         if not self._config.rpi_project_path:
             raise RemoteControlError("RPI_PROJECT_PATH no configurado")
         return self._config.rpi_project_path
-
